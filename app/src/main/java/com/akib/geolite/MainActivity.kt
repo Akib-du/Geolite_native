@@ -3,6 +3,10 @@ package com.akib.geolite
 import android.Manifest
 import android.os.Bundle
 import android.graphics.PointF
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,6 +45,7 @@ import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
@@ -48,6 +53,9 @@ import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
+import org.maplibre.android.style.layers.PropertyFactory.iconImage
+import org.maplibre.android.style.layers.PropertyFactory.iconSize
+import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.ImageSource
 import org.json.JSONObject
@@ -103,6 +111,8 @@ private fun GeoLiteScreen() {
     var selectedFeatureFid by remember { mutableStateOf<Long?>(null) }
     var selectedFeatureProperties by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var vectorColor by remember { mutableStateOf("#2878D0") }
+    var markerIcon by remember { mutableStateOf("Pin") }
+    var iconMenu by remember { mutableStateOf(false) }
     var vectorWidth by remember { mutableFloatStateOf(2.5f) }
     var pointSize by remember { mutableFloatStateOf(6f) }
     var fillOpacityValue by remember { mutableFloatStateOf(0.30f) }
@@ -132,8 +142,10 @@ private fun GeoLiteScreen() {
         style.addLayer(LineLayer("${overlay.id}_line", overlay.id).withProperties(
             lineColor(vectorColor), lineWidth(vectorWidth)
         ))
-        style.addLayer(CircleLayer("${overlay.id}_point", overlay.id).withProperties(
-            circleColor(vectorColor), circleRadius(pointSize)
+        val iconId = "geolite_icon_${markerIcon.lowercase()}"
+        if (style.getImage(iconId) == null) style.addImage(iconId, createMapMarkerIcon(markerIcon, vectorColor))
+        style.addLayer(SymbolLayer("${overlay.id}_symbol", overlay.id).withProperties(
+            iconImage(iconId), iconSize(pointSize / 12f), iconAllowOverlap(true)
         ))
     }
 
@@ -162,6 +174,7 @@ private fun GeoLiteScreen() {
                 style.removeLayer("${overlay.id}_fill")
                 style.removeLayer("${overlay.id}_line")
                 style.removeLayer("${overlay.id}_point")
+                style.removeLayer("${overlay.id}_symbol")
                 addVectorOverlayToStyle(style, overlay)
             }
             status = "Layer symbology updated"
@@ -674,7 +687,7 @@ private fun GeoLiteScreen() {
                                             "Identify", "Select" -> {
                                                 val screenPoint = nativeMap.projection.toScreenLocation(point)
                                                 val queryLayers = vectorOverlays.flatMap {
-                                                    listOf("${it.id}_fill", "${it.id}_line", "${it.id}_point")
+                                                    listOf("${it.id}_fill", "${it.id}_line", "${it.id}_symbol")
                                                 }.toTypedArray()
                                                 val found = nativeMap.queryRenderedFeatures(screenPoint, queryLayers).firstOrNull()
                                                 if (found != null) {
@@ -800,6 +813,15 @@ private fun GeoLiteScreen() {
                     OutlinedTextField(value = vectorColor, onValueChange = { vectorColor = it }, singleLine = true)
                     Text("Line width · ${"%.1f".format(vectorWidth)} px")
                     Slider(value = vectorWidth, onValueChange = { vectorWidth = it }, valueRange = 0.5f..10f)
+                    Text("Point icon")
+                    Box {
+                        TextButton(onClick = { iconMenu = true }) { Text("$markerIcon ▾") }
+                        DropdownMenu(expanded = iconMenu, onDismissRequest = { iconMenu = false }) {
+                            listOf("Pin", "Circle", "Star", "Square").forEach { shape ->
+                                DropdownMenuItem(text = { Text(shape) }, onClick = { markerIcon = shape; iconMenu = false })
+                            }
+                        }
+                    }
                     Text("Point size · ${"%.1f".format(pointSize)} px")
                     Slider(value = pointSize, onValueChange = { pointSize = it }, valueRange = 2f..20f)
                     Text("Polygon opacity · ${"%.0f".format(fillOpacityValue * 100)}%")
@@ -1013,6 +1035,42 @@ private fun GeoLiteScreen() {
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
     }
+}
+
+private fun createMapMarkerIcon(shape: String, hexColor: String): Bitmap {
+    val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.parseColor(hexColor)
+        style = Paint.Style.FILL
+    }
+    when (shape.lowercase()) {
+        "square" -> canvas.drawRoundRect(8f, 8f, 40f, 40f, 5f, 5f, paint)
+        "star" -> {
+            val path = Path()
+            for (i in 0 until 10) {
+                val angle = Math.PI * i / 5.0 - Math.PI / 2.0
+                val radius = if (i % 2 == 0) 20.0 else 9.0
+                val x = (24 + radius * kotlin.math.cos(angle)).toFloat()
+                val y = (24 + radius * kotlin.math.sin(angle)).toFloat()
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            path.close()
+            canvas.drawPath(path, paint)
+        }
+        "pin" -> {
+            val path = Path().apply {
+                moveTo(24f, 45f); cubicTo(20f, 36f, 7f, 25f, 7f, 18f)
+                cubicTo(7f, 8f, 15f, 3f, 24f, 3f); cubicTo(33f, 3f, 41f, 8f, 41f, 18f)
+                cubicTo(41f, 25f, 28f, 36f, 24f, 45f); close()
+            }
+            canvas.drawPath(path, paint)
+            paint.color = android.graphics.Color.WHITE
+            canvas.drawCircle(24f, 18f, 6f, paint)
+        }
+        else -> canvas.drawCircle(24f, 24f, 17f, paint)
+    }
+    return bitmap
 }
 
 private fun copyDirectoryTree(context: android.content.Context, treeUri: android.net.Uri): File {
