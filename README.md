@@ -18,8 +18,8 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 - Esri World Imagery satellite tiles.
 - OpenFreeMap Liberty and Positron styles.
 - No basemap.
-- Vector symbology controls: color, line width, polygon opacity, point icon (pin/circle/star/square), icon size and icon anchor/position.
-- A dynamic on-map scale division in metres/kilometres, with a visibility toggle.
+- Vector symbology controls: color, line width, polygon opacity, point icon (pin/circle/star/square), icon size and icon anchor/position; raster opacity is adjustable too.
+- A dynamic on-map scale division in metres/kilometres, with visibility and corner-position controls.
 - Map click/long-press placemarks, coordinate-based placemarks and GPS placemarks. GPS requests Android location permission at runtime.
 - On-map Identify and Select tools query rendered vector features and show their attributes; Select adds a highlight overlay.
 
