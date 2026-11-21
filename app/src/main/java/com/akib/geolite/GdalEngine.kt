@@ -141,10 +141,14 @@ object GdalEngine {
                     for (bandIndex in 1..bandCount) {
                         val band = warped.GetRasterBand(bandIndex)
                             ?: error("Could not read raster band $bandIndex.")
-                        val stats = band.GetStatistics(0, 1)
-                            ?: error("Could not calculate display statistics for raster band $bandIndex.")
-                        var min = stats[0]
-                        var max = stats[1]
+                        val minValues = DoubleArray(1)
+                        val maxValues = DoubleArray(1)
+                        val meanValues = DoubleArray(1)
+                        val stdDevValues = DoubleArray(1)
+                        val statsResult = band.GetStatistics(0, 1, minValues, maxValues, meanValues, stdDevValues)
+                        require(statsResult == 0) { "Could not calculate display statistics for raster band $bandIndex." }
+                        var min = minValues[0]
+                        var max = maxValues[0]
                         if (!min.isFinite() || !max.isFinite() || max <= min) {
                             min = 0.0
                             max = 255.0
@@ -441,9 +445,32 @@ object GdalEngine {
                         if (distance < best) { best = distance; insertAfter = i }
                     }
                     val insertAt = insertAfter + 1
-                    editable.AddPoint_2D(insertAt, longitude, latitude)
-                    feature.SetGeometry(geometry)
-                    require(layer.SetFeature(feature) == 0) { "Could not save inserted vertex." }
+                    val replacement = if (type == ogr.wkbLineString) {
+                        org.gdal.ogr.Geometry(ogr.wkbLineString).also { line ->
+                            for (i in 0 until count) {
+                                val p = editable.GetPoint(i)
+                                line.AddPoint_2D(p[0], p[1])
+                                if (i == insertAfter) line.AddPoint_2D(longitude, latitude)
+                            }
+                        }
+                    } else {
+                        val ring = org.gdal.ogr.Geometry(ogr.wkbLinearRing)
+                        for (i in 0 until count - 1) {
+                            val p = editable.GetPoint(i)
+                            ring.AddPoint_2D(p[0], p[1])
+                            if (i == insertAfter) ring.AddPoint_2D(longitude, latitude)
+                        }
+                        val first = ring.GetPoint(0)
+                        ring.AddPoint_2D(first[0], first[1])
+                        org.gdal.ogr.Geometry(ogr.wkbPolygon).also { polygon ->
+                            try { require(polygon.AddGeometry(ring) == 0) { "Could not rebuild polygon ring." } }
+                            finally { ring.delete() }
+                        }
+                    }
+                    try {
+                        feature.SetGeometry(replacement)
+                        require(layer.SetFeature(feature) == 0) { "Could not save inserted vertex." }
+                    } finally { replacement.delete() }
                     return insertAt
                 } finally { geometry.delete() }
             } finally { feature.delete() }
@@ -481,17 +508,32 @@ object GdalEngine {
                         val distance = dx * dx + dy * dy
                         if (distance < best) { best = distance; nearest = i }
                     }
-                    if (polygon) {
-                        // Remove the duplicated closing coordinate as well when deleting the first vertex.
-                        editable.RemovePoint(count - 1)
-                        editable.RemovePoint(nearest)
-                        val first = editable.GetPoint(0)
-                        editable.AddPoint_2D(first[0], first[1])
+                    val replacement = if (polygon) {
+                        val ring = org.gdal.ogr.Geometry(ogr.wkbLinearRing)
+                        for (i in 0 until count - 1) {
+                            if (i == nearest) continue
+                            val p = editable.GetPoint(i)
+                            ring.AddPoint_2D(p[0], p[1])
+                        }
+                        val first = ring.GetPoint(0)
+                        ring.AddPoint_2D(first[0], first[1])
+                        org.gdal.ogr.Geometry(ogr.wkbPolygon).also { rebuilt ->
+                            try { require(rebuilt.AddGeometry(ring) == 0) { "Could not rebuild polygon ring." } }
+                            finally { ring.delete() }
+                        }
                     } else {
-                        editable.RemovePoint(nearest)
+                        org.gdal.ogr.Geometry(ogr.wkbLineString).also { line ->
+                            for (i in 0 until count) {
+                                if (i == nearest) continue
+                                val p = editable.GetPoint(i)
+                                line.AddPoint_2D(p[0], p[1])
+                            }
+                        }
                     }
-                    feature.SetGeometry(geometry)
-                    require(layer.SetFeature(feature) == 0) { "Could not save deleted vertex." }
+                    try {
+                        feature.SetGeometry(replacement)
+                        require(layer.SetFeature(feature) == 0) { "Could not save deleted vertex." }
+                    } finally { replacement.delete() }
                     return nearest
                 } finally { geometry.delete() }
             } finally { feature.delete() }
@@ -651,10 +693,10 @@ object GdalEngine {
             if (algorithm == "hillshade") args.addAll(listOf("-z", "1", "-s", scale.toString(), "-az", "315", "-alt", "45", "-compute_edges"))
             val options = org.gdal.gdal.DEMProcessingOptions(args)
             try {
-                val output = gdal.DEMProcessing(outputPath, source, algorithm, options)
+                val output = gdal.DEMProcessing(outputPath, source, algorithm, "", options)
                     ?: error("GDAL $algorithm processing failed.")
                 output.delete()
-            } finally { options.delete() }
+            }
         } finally { source.delete() }
     }
 
