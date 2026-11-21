@@ -42,6 +42,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
@@ -260,7 +261,8 @@ private fun GeoLiteScreen() {
     fun addPin(pin: Pin) {
         pins = pins + pin
         map?.addMarker(MarkerOptions().position(LatLng(pin.lat, pin.lon)).title(pin.title)
-            .snippet("%.6f, %.6f".format(pin.lat, pin.lon)))
+            .snippet("%.6f, %.6f".format(pin.lat, pin.lon))
+            .icon(IconFactory.getInstance(context).fromBitmap(createMapMarkerIcon(markerIcon, vectorColor))))
         status = "Placemark added: ${pin.title}"
     }
 
