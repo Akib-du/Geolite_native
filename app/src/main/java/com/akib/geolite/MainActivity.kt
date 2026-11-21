@@ -43,6 +43,8 @@ import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.json.JSONObject
+import java.io.File
+import java.util.zip.ZipInputStream
 
 private const val DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 private data class Pin(val title: String, val lat: Double, val lon: Double)
@@ -69,6 +71,12 @@ private fun GeoLiteScreen() {
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
     var vectorLayers by remember { mutableStateOf(listOf<String>()) }
+    var rasterLayers by remember { mutableStateOf(listOf<String>()) }
+    var lastVectorPath by remember { mutableStateOf<String?>(null) }
+    var lastRasterPath by remember { mutableStateOf<String?>(null) }
+    var showBufferDialog by remember { mutableStateOf(false) }
+    var bufferDistance by remember { mutableStateOf("100") }
+    var processing by remember { mutableStateOf(false) }
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
@@ -82,69 +90,80 @@ private fun GeoLiteScreen() {
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (_: Exception) { }
-            val displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Selected dataset"
-            try {
-                val geoJsonText = context.contentResolver.openInputStream(uri)
-                    ?.bufferedReader()?.use { it.readText() }
-                    ?: error("Could not read the selected document")
-                val document = JSONObject(geoJsonText)
-                val type = document.optString("type")
-                require(type == "FeatureCollection" || type == "Feature") {
-                    "This first vector reader supports GeoJSON Feature and FeatureCollection files."
-                }
-                val featureArray = if (type == "Feature") org.json.JSONArray().put(document)
-                    else document.optJSONArray("features") ?: org.json.JSONArray()
-                val featureCount = featureArray.length()
-                require(featureCount > 0) { "The GeoJSON file contains no features." }
-                val parsedRows = (0 until featureCount).map { index ->
-                    val feature = featureArray.getJSONObject(index)
-                    val properties = feature.optJSONObject("properties") ?: JSONObject()
-                    val row = linkedMapOf<String, String>()
-                    val keys = properties.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        val value = properties.opt(key)
-                        row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
+            val displayName = queryDisplayName(context, uri)
+            status = "Opening $displayName…"
+            Thread {
+                try {
+                    val copied = materializeDocument(context, uri, displayName)
+                    val extension = displayName.substringAfterLast('.', "").lowercase()
+                    if (extension in listOf("tif", "tiff", "img", "vrt")) {
+                        val info = GdalEngine.openRaster(copied.absolutePath)
+                        val description = GdalEngine.describeRaster(info)
+                        runOnUiThread {
+                            lastRasterPath = copied.absolutePath
+                            selectedFile = displayName
+                            rasterLayers = rasterLayers + "$displayName · $description"
+                            status = "Raster opened by GDAL: $description · ${info.projection.ifBlank { "CRS not defined" }}"
+                            selectedPanel = "Layers"
+                        }
+                    } else {
+                        val vectorFile = if (extension == "zip") extractShapefile(copied) else copied
+                        val result = GdalEngine.openVector(vectorFile.absolutePath)
+                        val document = JSONObject(result.geoJson)
+                        val featureArray = document.optJSONArray("features") ?: org.json.JSONArray()
+                        val parsedRows = (0 until featureArray.length()).map { index ->
+                            val feature = featureArray.getJSONObject(index)
+                            val properties = feature.optJSONObject("properties") ?: JSONObject()
+                            val row = linkedMapOf<String, String>()
+                            val keys = properties.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                val value = properties.opt(key)
+                                row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
+                            }
+                            row
+                        }
+                        val sourceId = "gdal_vector_${System.currentTimeMillis()}"
+                        val layerLabel = displayName.substringBeforeLast('.', displayName)
+                        runOnUiThread {
+                            val activeMap = map
+                            if (activeMap == null) {
+                                status = "Map is not ready. Reopen the dataset after the map loads."
+                            } else {
+                                activeMap.getStyle { style ->
+                                    try {
+                                        style.addSource(GeoJsonSource(sourceId, result.geoJson))
+                                        style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
+                                            fillColor("#4F83CC"), fillOpacity(0.30f)
+                                        ))
+                                        style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
+                                            lineColor("#245A9A"), lineWidth(2.0f)
+                                        ))
+                                        style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
+                                            circleColor("#E46B35"), circleRadius(5.0f)
+                                        ))
+                                        vectorLayers = vectorLayers + "$layerLabel · ${result.featureCount} features"
+                                        attributeRows = parsedRows
+                                        selectedAttributeIndex = 0
+                                        lastVectorPath = vectorFile.absolutePath
+                                        selectedFile = displayName
+                                        status = "Vector layer opened: $layerLabel · ${result.featureCount} features · GDAL ${GdalEngine.initialize()}"
+                                        selectedPanel = "Layers"
+                                    } catch (e: Exception) {
+                                        status = "Could not render vector layer: ${e.localizedMessage}"
+                                    }
+                                }
+                            }
+                        }
                     }
-                    row
-                }
-                val sourceId = "geojson_${System.currentTimeMillis()}"
-                val layerLabel = displayName.substringBeforeLast('.', displayName)
-                map?.getStyle { style ->
-                    try {
-                        style.addSource(GeoJsonSource(sourceId, geoJsonText))
-                        style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
-                            fillColor("#4F83CC"), fillOpacity(0.30f)
-                        ))
-                        style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
-                            lineColor("#245A9A"), lineWidth(2.0f)
-                        ))
-                        style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
-                            circleColor("#E46B35"), circleRadius(5.0f)
-                        ))
-                        vectorLayers = vectorLayers + "$layerLabel · $featureCount features"
-                        attributeRows = parsedRows
-                        selectedAttributeIndex = 0
+                } catch (e: Exception) {
+                    runOnUiThread {
                         selectedFile = displayName
-                        status = "GeoJSON layer added: $layerLabel ($featureCount features)"
-                        Toast.makeText(context, "GeoJSON layer added to map", Toast.LENGTH_SHORT).show()
-                    } catch (e: Exception) {
-                        status = "Could not render GeoJSON: ${e.localizedMessage}"
+                        status = "Could not open $displayName: ${e.localizedMessage ?: "Unsupported dataset"}"
+                        Toast.makeText(context, status, Toast.LENGTH_LONG).show()
                     }
-                } ?: run {
-                    selectedFile = displayName
-                    status = "Map is not ready. Reopen the GeoJSON file after the map loads."
                 }
-            } catch (e: Exception) {
-                selectedFile = displayName
-                status = "Could not open layer: ${e.localizedMessage ?: "Unsupported file"}"
-                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
-            }
+            }.start()
         }
     }
 
@@ -312,6 +331,51 @@ private fun GeoLiteScreen() {
         }
     }
 
+
+    if (showBufferDialog) {
+        AlertDialog(
+            onDismissRequest = { showBufferDialog = false },
+            title = { Text("Vector buffer") },
+            text = {
+                Column {
+                    Text("Distance in the input layer's coordinate units. Use a projected CRS for metre-based buffers.")
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = bufferDistance, onValueChange = { bufferDistance = it },
+                        label = { Text("Buffer distance") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastVectorPath
+                    val distance = bufferDistance.toDoubleOrNull()
+                    if (input == null || distance == null || distance <= 0.0) {
+                        status = "Enter a positive numeric buffer distance."
+                    } else {
+                        showBufferDialog = false
+                        processing = true
+                        status = "Creating vector buffer…"
+                        Thread {
+                            try {
+                                val outputDir = getExternalFilesDir("GeoLite/Processing") ?: filesDir
+                                outputDir.mkdirs()
+                                val output = File(outputDir, "buffer_\${System.currentTimeMillis()}.geojson")
+                                GdalEngine.bufferVector(input, output.absolutePath, distance)
+                                runOnUiThread {
+                                    selectedFile = output.name
+                                    status = "Vector buffer created: \${output.absolutePath}. Open this GeoJSON to add it to the map."
+                                    processing = false
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread { status = "Vector buffer failed: \${e.localizedMessage}"; processing = false }
+                            }
+                        }.start()
+                    }
+                }) { Text("Run buffer") }
+            },
+            dismissButton = { TextButton(onClick = { showBufferDialog = false }) { Text("Cancel") } }
+        )
+    }
+
     val currentMapView = mapView
     if (currentMapView != null) {
         DisposableEffect(currentMapView, lifecycleOwner) {
@@ -329,4 +393,46 @@ private fun GeoLiteScreen() {
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
     }
+}
+
+private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String {
+    val cursor = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+    cursor?.use {
+        if (it.moveToFirst()) {
+            val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (index >= 0) return it.getString(index) ?: "Selected dataset"
+        }
+    }
+    return uri.lastPathSegment?.substringAfterLast('/') ?: "Selected dataset"
+}
+
+private fun materializeDocument(context: android.content.Context, uri: android.net.Uri, name: String): File {
+    val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val target = File(context.cacheDir, "geolite_\${System.currentTimeMillis()}_$safeName")
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        target.outputStream().use { output -> input.copyTo(output) }
+    } ?: error("Could not read selected file.")
+    return target
+}
+
+private fun extractShapefile(zipFile: File): File {
+    val outputDir = File(zipFile.parentFile, "unzipped_\${zipFile.nameWithoutExtension}")
+    outputDir.mkdirs()
+    ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
+        var entry = zip.nextEntry
+        while (entry != null) {
+            val destination = File(outputDir, entry.name).canonicalFile
+            require(destination.path.startsWith(outputDir.canonicalPath + File.separator) || destination == outputDir) {
+                "Invalid ZIP entry path."
+            }
+            if (entry.isDirectory) destination.mkdirs() else {
+                destination.parentFile?.mkdirs()
+                destination.outputStream().use { output -> zip.copyTo(output) }
+            }
+            zip.closeEntry()
+            entry = zip.nextEntry
+        }
+    }
+    return outputDir.walkTopDown().firstOrNull { it.isFile && it.extension.equals("shp", true) }
+        ?: error("ZIP archive does not contain a Shapefile (.shp).")
 }
