@@ -30,7 +30,7 @@ jobs:
         id: gdal-cache
         with:
           path: app/libs/gdal-3.7.0.aar
-          key: geolite-gdal-3.7.0-arm64-x86_64-gpx-openfilegdb-png-v1
+          key: geolite-gdal-3.7.0-arm64-gpx-openfilegdb-png-v1
       - name: Build GDAL Android engine with GPX and OpenFileGDB
         if: steps.gdal-cache.outputs.cache-hit != 'true'
         run: |
