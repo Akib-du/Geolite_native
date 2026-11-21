@@ -47,7 +47,7 @@ jobs:
           docker build -t geolite-gdal-builder - < vendor/GDAL4Android/docker/Dockerfile
           docker run --rm --platform linux/amd64 \
             -v "$PWD/vendor/GDAL4Android:/root/GDAL4Android" \
-            geolite-gdal-builder bash -lc "cp /root/GDAL4Android/docker/cmake_modules/FindJNI.cmake /usr/share/cmake-3.22/Modules/FindJNI.cmake && cd /root/GDAL4Android && ./gradlew gdal:assembleRelease"
+            geolite-gdal-builder bash -lc "yes | /root/android_sdk/cmdline-tools/bin/sdkmanager --sdk_root=/root/android_sdk \"platforms;android-33\" \"build-tools;33.0.2\" \"platform-tools\" >/dev/null && cp /root/GDAL4Android/docker/cmake_modules/FindJNI.cmake /usr/share/cmake-3.22/Modules/FindJNI.cmake && cd /root/GDAL4Android && ./gradlew gdal:assembleRelease"
           mkdir -p app/libs
           cp vendor/GDAL4Android/gdal/build/outputs/aar/gdal-release.aar app/libs/gdal-3.7.0.aar
           test -s app/libs/gdal-3.7.0.aar
