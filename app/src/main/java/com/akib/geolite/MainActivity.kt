@@ -570,6 +570,9 @@ private fun GeoLiteScreen() {
                             DropdownMenuItem(text = { Text("Edit selected attribute") }, onClick = {
                                 editMenu = false; showAttributeEditDialog = true
                             })
+                            DropdownMenuItem(text = { Text("Move selected point") }, onClick = {
+                                editMenu = false; mapTool = "Move point"; status = "Select a point feature, then tap its new position."
+                            })
                             DropdownMenuItem(text = { Text("Delete selected feature") }, onClick = {
                                 editMenu = false
                                 val path = lastVectorPath
@@ -778,6 +781,18 @@ private fun GeoLiteScreen() {
                                                 } catch (e: Exception) { status = "Could not add feature: ${e.localizedMessage}" }
                                                 true
                                             }
+                                            "Move point" -> {
+                                                val path = lastVectorPath
+                                                val fid = selectedFeatureFid
+                                                if (path == null || fid == null) status = "Identify/select a point feature first."
+                                                else try {
+                                                    GdalEngine.movePointFeature(path, lastVectorLayerIndex, fid, point.longitude, point.latitude)
+                                                    refreshActiveVector()
+                                                    status = "Moved point feature $fid to %.6f, %.6f.".format(point.latitude, point.longitude)
+                                                    mapTool = "Pan"
+                                                } catch (e: Exception) { status = "Could not move feature: ${e.localizedMessage}" }
+                                                true
+                                            }
                                             "Identify", "Select" -> {
                                                 val screenPoint = nativeMap.projection.toScreenLocation(point)
                                                 val queryLayers = vectorOverlays.flatMap {
@@ -846,6 +861,7 @@ private fun GeoLiteScreen() {
                         FilterChip(selected = mapTool == "Select", onClick = { mapTool = "Select"; status = "Tap a feature to select it." }, label = { Text("Select") })
                         FilterChip(selected = mapTool == "Pan", onClick = { mapTool = "Pan"; status = "Pan/zoom mode." }, label = { Text("Pan") })
                         FilterChip(selected = mapTool == "Add feature", onClick = { mapTool = "Add feature"; status = "Tap the map to create a point in the active Shapefile." }, label = { Text("Edit point") })
+                        FilterChip(selected = mapTool == "Move point", onClick = { mapTool = "Move point"; status = "Identify/select a point feature, then tap its new location." }, label = { Text("Move point") })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { showManualPinDialog = true }) { Text("Coordinates") }
