@@ -1299,6 +1299,34 @@ private fun GeoLiteScreen() {
     }
 }
 
+private fun copyLocalDirectoryToTree(context: android.content.Context, localFolder: File, treeUri: android.net.Uri) {
+    require(localFolder.isDirectory && localFolder.name.endsWith(".gdb", true)) { "Source is not a FileGDB folder." }
+    val destinationRoot = DocumentFile.fromTreeUri(context, treeUri)
+        ?: error("Could not access the selected export folder.")
+    require(destinationRoot.isDirectory) { "Choose a destination folder." }
+    val exportName = localFolder.nameWithoutExtension + "_edited_${System.currentTimeMillis()}.gdb"
+    val targetRoot = destinationRoot.createDirectory(exportName)
+        ?: error("Could not create exported FileGDB folder.")
+    fun copyFolder(source: File, target: DocumentFile) {
+        source.listFiles()?.forEach { child ->
+            if (child.isDirectory) {
+                val childTarget = target.createDirectory(child.name)
+                    ?: error("Could not create FileGDB subfolder ${child.name}.")
+                copyFolder(child, childTarget)
+            } else if (child.isFile) {
+                val targetFile = target.createFile("application/octet-stream", child.name)
+                    ?: error("Could not create FileGDB component ${child.name}.")
+                child.inputStream().use { input ->
+                    context.contentResolver.openOutputStream(targetFile.uri, "w")?.use { output ->
+                        input.copyTo(output)
+                    } ?: error("Could not write FileGDB component ${child.name}.")
+                }
+            }
+        }
+    }
+    copyFolder(localFolder, targetRoot)
+}
+
 private fun createMapMarkerIcon(shape: String, hexColor: String): Bitmap {
     val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
