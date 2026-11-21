@@ -134,7 +134,7 @@ object GdalEngine {
                     "Raster has invalid or unsupported geographic bounds."
                 }
 
-                val bandCount = minOf(warped.GetRasterCount(), 3)
+                val bandCount = minOf(warped.GetRasterCount(), 4)
                 require(bandCount > 0) { "Raster has no displayable bands." }
                 val translateArgs = java.util.Vector<String>().apply {
                     addAll(listOf("-of", "PNG", "-ot", "Byte"))
