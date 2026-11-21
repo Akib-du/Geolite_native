@@ -56,7 +56,8 @@ object GdalEngine {
         val dataSource = ogr.Open(path, 0) ?: error("OGR could not open this vector dataset. For Shapefile, choose a ZIP containing .shp, .shx and .dbf.")
         try {
             require(dataSource.GetLayerCount() > 0) { "No vector layers were found." }
-            require(layerIndex in 0 until dataSource.GetLayerCount()) { "Vector layer index is out of range." }\n            val layer = dataSource.GetLayer(layerIndex) ?: error("Could not read vector layer $layerIndex.")
+            require(layerIndex in 0 until dataSource.GetLayerCount()) { "Vector layer index is out of range." }
+            val layer = dataSource.GetLayer(layerIndex) ?: error("Could not read vector layer $layerIndex.")
             val definition = layer.GetLayerDefn()
             val target = SpatialReference()
             target.ImportFromEPSG(4326)
