@@ -6,6 +6,7 @@ A native Android GIS application for phones and landscape tablets. This reposito
 
 - Kotlin + Jetpack Compose Android application (no WebView map).
 - MapLibre Native map renderer with online OpenFreeMap Liberty and Positron styles.
+- GeoJSON Feature and FeatureCollection import with basic point, line, and polygon rendering.
 - Android Storage Access Framework file picker.
 - Runtime location permission flow and current-location placemark.
 - Long-press map to add manual placemarks.
@@ -30,4 +31,4 @@ APK output: app/build/outputs/apk/debug/app-debug.apk.
 4. Raster display and processing (reproject, clip, resample, calculator).
 5. Spatial analysis tools and project persistence.
 
-**Important:** The file picker in this initial foundation selects a document URI; it does not yet parse GIS datasets. Raster/vector processing is not claimed as implemented until the native engine is integrated and tested. Basemap services have separate usage terms and attribution requirements.
+**Current data-reader scope:** GeoJSON Feature and FeatureCollection files can be parsed and rendered as basic point, line, and polygon layers. Other formats in the roadmap (including Shapefile, GeoPackage, GeoTIFF, and FileGDB) are not yet supported. Attribute tables, layer styling controls, raster rendering, GDAL/OGR, and PROJ are not yet integrated. Basemap services have separate usage terms and attribution requirements.
