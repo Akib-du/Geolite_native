@@ -4,6 +4,7 @@ import org.gdal.gdal.gdal
 import org.gdal.gdalconst.gdalconstConstants
 import org.gdal.ogr.ogr
 import org.gdal.osr.SpatialReference
+import org.gdal.osr.CoordinateTransformation
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -328,6 +329,64 @@ object GdalEngine {
         } finally {
             dataset.delete()
         }
+    }
+
+    /** Reproject one vector layer into a new WGS84/target-CRS Shapefile. */
+    fun reprojectVector(inputPath: String, layerIndex: Int, outputPath: String, targetCrs: String): Long {
+        initialize()
+        val epsg = Regex("^EPSG:(\\d+)$", RegexOption.IGNORE_CASE).matchEntire(targetCrs.trim())
+            ?.groupValues?.get(1)?.toIntOrNull()
+            ?: error("Enter a target CRS as EPSG:<code>, for example EPSG:32646.")
+        val input = ogr.Open(inputPath, 0) ?: error("Could not open input vector dataset.")
+        try {
+            val layer = input.GetLayer(layerIndex) ?: error("Input vector layer not found.")
+            val sourceSrs = layer.GetSpatialRef() ?: error("Input layer has no defined CRS.")
+            val targetSrs = SpatialReference()
+            require(targetSrs.ImportFromEPSG(epsg) == 0) { "Could not read target EPSG:$epsg." }
+            val transform = CoordinateTransformation(sourceSrs, targetSrs)
+            val driver = ogr.GetDriverByName("ESRI Shapefile") ?: error("Shapefile output driver unavailable.")
+            val output = driver.CreateDataSource(outputPath) ?: error("Could not create output Shapefile.")
+            try {
+                val layerName = File(outputPath).nameWithoutExtension
+                val outLayer = output.CreateLayer(layerName, targetSrs, layer.GetGeomType())
+                    ?: error("Could not create output feature class.")
+                val definition = layer.GetLayerDefn()
+                for (i in 0 until definition.GetFieldCount()) {
+                    outLayer.CreateField(definition.GetFieldDefn(i))
+                }
+                val outDefinition = outLayer.GetLayerDefn()
+                layer.ResetReading()
+                var feature = layer.GetNextFeature()
+                var count = 0L
+                while (feature != null) {
+                    val geometry = feature.GetGeometryRef()
+                    val outputFeature = org.gdal.ogr.Feature(outDefinition)
+                    try {
+                        if (geometry != null) {
+                            val copy = geometry.Clone()
+                            try {
+                                require(copy.Transform(transform) == 0) { "Coordinate transformation failed for feature ${feature.GetFID()}." }
+                                outputFeature.SetGeometry(copy)
+                            } finally { copy.delete() }
+                        }
+                        for (i in 0 until feature.GetFieldCount()) {
+                            outputFeature.SetField(i, feature.GetFieldAsString(i))
+                        }
+                        require(outLayer.CreateFeature(outputFeature) == 0) { "Could not write reprojected feature." }
+                        count++
+                    } finally {
+                        outputFeature.delete()
+                        feature.delete()
+                    }
+                    feature = layer.GetNextFeature()
+                }
+                return count
+            } finally {
+                output.delete()
+                transform.delete()
+                targetSrs.delete()
+            }
+        } finally { input.delete() }
     }
 
     /** GDAL Warp-based reprojection/resampling. Output is written as GeoTIFF. */
