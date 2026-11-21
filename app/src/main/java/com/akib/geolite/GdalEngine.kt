@@ -11,7 +11,7 @@ import java.io.File
 
 /**
  * Android GDAL/OGR bridge.
- * GDAL 3.7.0 Android build: arm64-v8a and x86_64; drivers include
+ * GDAL 3.7.0 Android build: arm64-v8a; drivers include
  * GeoTIFF, Erdas IMG, Shapefile, KML and GeoJSON.
  */
 object GdalEngine {
@@ -134,7 +134,7 @@ object GdalEngine {
                     "Raster has invalid or unsupported geographic bounds."
                 }
 
-                val bandCount = minOf(warped.GetRasterCount(), 3)
+                val bandCount = minOf(warped.GetRasterCount(), 4)
                 require(bandCount > 0) { "Raster has no displayable bands." }
                 val translateArgs = java.util.Vector<String>().apply {
                     addAll(listOf("-of", "PNG", "-ot", "Byte"))
@@ -671,6 +671,184 @@ object GdalEngine {
             }
         } finally {
             input.delete()
+        }
+    }
+
+
+    /** Clip a raster using a polygon vector mask. GDAL handles on-the-fly CRS transformation. */
+    fun clipRasterByMask(inputPath: String, maskPath: String, outputPath: String, layerIndex: Int = 0) {
+        initialize()
+        require(File(maskPath).exists()) { "Mask vector dataset does not exist." }
+        val mask = ogr.Open(maskPath, 0) ?: error("Could not open polygon mask dataset.")
+        val layerName = try {
+            val layer = mask.GetLayer(layerIndex) ?: error("Mask layer not found.")
+            val geometryType = ogr.GT_Flatten(layer.GetGeomType())
+            require(geometryType == ogr.wkbPolygon || geometryType == ogr.wkbMultiPolygon) {
+                "Mask layer must contain Polygon or MultiPolygon geometry."
+            }
+            layer.GetName()
+        } finally { mask.delete() }
+        val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly)
+            ?: error("Could not open input raster.")
+        try {
+            val args = java.util.Vector<String>().apply {
+                addAll(listOf("-of", "GTiff", "-cutline", maskPath, "-cl", layerName,
+                    "-crop_to_cutline", "-dstalpha"))
+            }
+            val options = org.gdal.gdal.WarpOptions(args)
+            try {
+                val output = gdal.Warp(outputPath, arrayOf(source), options)
+                    ?: error("Mask clipping failed. Check that the polygon overlaps the raster.")
+                output.delete()
+            } finally { options.delete() }
+        } finally { source.delete() }
+    }
+
+    /** Pixel-wise raster algebra for aligned single-band rasters. Expressions support A, B, numbers,
+     * parentheses and +, -, *, /, ^ operators. */
+    fun rasterCalculator(inputAPath: String, inputBPath: String?, expression: String, outputPath: String) {
+        initialize()
+        val a = gdal.Open(inputAPath, gdalconstConstants.GA_ReadOnly)
+            ?: error("Could not open raster A.")
+        var b: org.gdal.gdal.Dataset? = null
+        var output: org.gdal.gdal.Dataset? = null
+        try {
+            val width = a.GetRasterXSize()
+            val height = a.GetRasterYSize()
+            val bandA = a.GetRasterBand(1) ?: error("Raster A has no band 1.")
+            val bandB = if (!inputBPath.isNullOrBlank()) {
+                b = gdal.Open(inputBPath, gdalconstConstants.GA_ReadOnly)
+                    ?: error("Could not open raster B.")
+                require(b!!.GetRasterXSize() == width && b!!.GetRasterYSize() == height) {
+                    "Raster A and B must have identical dimensions. Reproject/resample them to the same grid first."
+                }
+                require(a.GetProjectionRef() == b!!.GetProjectionRef() &&
+                    a.GetGeoTransform().contentEquals(b!!.GetGeoTransform())) {
+                    "Raster A and B must have the same CRS, cell size and grid alignment."
+                }
+                b!!.GetRasterBand(1) ?: error("Raster B has no band 1.")
+            } else null
+            val evaluator = RasterExpression(expression, bandB != null)
+            val driver = gdal.GetDriverByName("GTiff") ?: error("GeoTIFF output driver unavailable.")
+            output = driver.Create(outputPath, width, height, 1, gdalconstConstants.GDT_Float32)
+                ?: error("Could not create calculator output.")
+            output!!.SetGeoTransform(a.GetGeoTransform())
+            output!!.SetProjection(a.GetProjectionRef())
+            val outBand = output!!.GetRasterBand(1) ?: error("Could not create output band.")
+            outBand.SetNoDataValue(Double.NaN)
+            val rowA = DoubleArray(width)
+            val rowB = DoubleArray(width)
+            val rowOut = DoubleArray(width)
+            val noDataA = bandA.GetNoDataValue()
+            val noDataB = bandB?.GetNoDataValue()
+            for (y in 0 until height) {
+                require(bandA.ReadRaster(0, y, width, 1, rowA) == 0) { "Could not read raster A row $y." }
+                if (bandB != null) require(bandB.ReadRaster(0, y, width, 1, rowB) == 0) { "Could not read raster B row $y." }
+                for (x in 0 until width) {
+                    val av = rowA[x]
+                    val bv = if (bandB != null) rowB[x] else Double.NaN
+                    rowOut[x] = if (!av.isFinite() || (noDataA != null && av == noDataA) ||
+                        (bandB != null && (!bv.isFinite() || (noDataB != null && bv == noDataB)))) {
+                        Double.NaN
+                    } else {
+                        evaluator.evaluate(av, bv).let { if (it.isFinite()) it else Double.NaN }
+                    }
+                }
+                require(outBand.WriteRaster(0, y, width, 1, rowOut) == 0) { "Could not write calculator output row $y." }
+            }
+            output!!.FlushCache()
+        } finally {
+            output?.delete()
+            b?.delete()
+            a.delete()
+        }
+    }
+
+    private class RasterExpression(source: String, allowB: Boolean) {
+        private var position = 0
+        private val expression = source.replace(" ", "").uppercase()
+        private val root: (Double, Double) -> Double
+
+        init {
+            require(expression.isNotBlank()) { "Enter a raster expression." }
+            root = parseAddSub(allowB)
+            require(position == expression.length) { "Unexpected character at position ${position + 1}." }
+        }
+
+        fun evaluate(a: Double, b: Double): Double = root(a, b)
+
+        private fun parseAddSub(allowB: Boolean): (Double, Double) -> Double {
+            var left = parseMulDiv(allowB)
+            while (position < expression.length && (expression[position] == '+' || expression[position] == '-')) {
+                val op = expression[position++]
+                val right = parseMulDiv(allowB)
+                val previous = left
+                left = if (op == '+') ({ a, b -> previous(a, b) + right(a, b) })
+                    else ({ a, b -> previous(a, b) - right(a, b) })
+            }
+            return left
+        }
+
+        private fun parseMulDiv(allowB: Boolean): (Double, Double) -> Double {
+            var left = parsePower(allowB)
+            while (position < expression.length && (expression[position] == '*' || expression[position] == '/')) {
+                val op = expression[position++]
+                val right = parsePower(allowB)
+                val previous = left
+                left = if (op == '*') ({ a, b -> previous(a, b) * right(a, b) })
+                    else ({ a, b -> previous(a, b) / right(a, b) })
+            }
+            return left
+        }
+
+        private fun parsePower(allowB: Boolean): (Double, Double) -> Double {
+            val left = parseUnary(allowB)
+            if (position < expression.length && expression[position] == '^') {
+                position++
+                val right = parsePower(allowB)
+                return { a, b -> Math.pow(left(a, b), right(a, b)) }
+            }
+            return left
+        }
+
+        private fun parseUnary(allowB: Boolean): (Double, Double) -> Double {
+            if (position < expression.length && expression[position] == '+') {
+                position++
+                return parseUnary(allowB)
+            }
+            if (position < expression.length && expression[position] == '-') {
+                position++
+                val value = parseUnary(allowB)
+                return { a, b -> -value(a, b) }
+            }
+            return parsePrimary(allowB)
+        }
+
+        private fun parsePrimary(allowB: Boolean): (Double, Double) -> Double {
+            require(position < expression.length) { "Unexpected end of expression." }
+            val ch = expression[position]
+            if (ch == '(') {
+                position++
+                val value = parseAddSub(allowB)
+                require(position < expression.length && expression[position] == ')') { "Missing closing parenthesis." }
+                position++
+                return value
+            }
+            if (ch == 'A') { position++; return { a, _ -> a } }
+            if (ch == 'B') {
+                require(allowB) { "Expression uses B, but no second raster is selected." }
+                position++
+                return { _, b -> b }
+            }
+            val start = position
+            while (position < expression.length && (expression[position].isDigit() || expression[position] == '.' ||
+                expression[position] == 'E' || expression[position] == 'e' ||
+                ((expression[position] == '+' || expression[position] == '-') && position > start &&
+                    (expression[position - 1] == 'E' || expression[position - 1] == 'e')))) position++
+            require(position > start) { "Invalid token at position ${position + 1}." }
+            val number = expression.substring(start, position).toDoubleOrNull()
+                ?: error("Invalid number in raster expression.")
+            return { _, _ -> number }
         }
     }
 

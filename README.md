@@ -29,6 +29,9 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 - Terrain derivatives from elevation rasters: Slope, Aspect and Hillshade using GDAL DEMProcessing.
 - Clip a raster by a user-entered bounding box in the source raster CRS.
 - Resample raster pixel size using Nearest, Bilinear, Cubic or Average resampling.
+- Raster Calculator for aligned single-band GeoTIFF inputs using `A` and optional `B`, numeric constants, parentheses and `+`, `-`, `*`, `/`, `^` operators; input rasters must share dimensions, CRS and grid alignment.
+- Mask-based raster clipping using an active Polygon/MultiPolygon vector layer as a GDAL cutline; output is a GeoTIFF with an alpha mask outside the polygon.
+- Export the current MapLibre map view to PNG or a one-page PDF using Android's document picker.
 - Vector reprojection tool for the active layer; output is a new Shapefile in the selected target EPSG CRS.
 - Initial vector buffer operation.
 - Create WGS84 Shapefile feature classes with Point, Line or Polygon geometry.
@@ -44,10 +47,10 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 
 - Large vector layers are converted to in-memory GeoJSON for display and can consume substantial memory. Streaming, paging and spatial filtering are future work.
 - Raster preview is a single georeferenced image overlay, not a tiled raster renderer; very large or rotated/complex rasters may need preprocessing.
-- Raster processing currently includes reprojection, Slope, Aspect, Hillshade, extent-based clipping and pixel-size resampling. Raster Calculator, mask-based clipping, multi-band renderer and advanced raster symbology are pending.
+- Raster processing currently includes reprojection, Slope, Aspect, Hillshade, extent-based clipping and pixel-size resampling. Multi-band raster rendering and advanced raster symbology are pending.
 - Vector processing currently includes buffer; clip, dissolve, overlay, spatial join and topology tools are pending.
 - Vector reprojection output currently uses Shapefile format; writing the reprojected output directly back into an existing FileGDB is pending.
-- A print-layout designer/PDF map export and true tiled raster rendering are not yet implemented; the current raster preview remains a single georeferenced image overlay.
+- A print-layout designer with editable map elements, legends and page composition is not yet implemented. PNG/PDF export captures the current map viewport, not a full print-layout page. The current raster preview remains a single georeferenced image overlay.
 - Physical-device testing and validation against sample SHP, FileGDB, GPX and TIFF datasets are required before describing the app as production-ready.
 
 ## Build
