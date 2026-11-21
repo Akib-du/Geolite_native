@@ -98,7 +98,7 @@ object GdalEngine {
     /** GDAL Warp-based reprojection/resampling. Output is written as GeoTIFF. */
     fun reprojectRaster(inputPath: String, outputPath: String, targetCrs: String, pixelSize: Double? = null) {
         initialize()
-        val options = arrayListOf("-t_srs", targetCrs, "-of", "GTiff")
+        val options = java.util.Vector<String>().apply { addAll(listOf("-t_srs", targetCrs, "-of", "GTiff")) }
         if (pixelSize != null && pixelSize > 0.0) {
             options.addAll(listOf("-tr", pixelSize.toString(), pixelSize.toString(), "-r", "bilinear"))
         }
@@ -112,6 +112,46 @@ object GdalEngine {
             warpOptions.delete()
         } finally {
             source.delete()
+        }
+    }
+
+
+    /** Create an OGR geometry buffer and write the result as GeoJSON. Distance uses layer units. */
+    fun bufferVector(inputPath: String, outputPath: String, distance: Double) {
+        initialize()
+        require(distance > 0.0) { "Buffer distance must be greater than zero." }
+        val input = ogr.Open(inputPath, 0) ?: error("Could not open input vector.")
+        try {
+            val layer = input.GetLayer(0) ?: error("Input has no vector layer.")
+            val driver = ogr.GetDriverByName("GeoJSON") ?: error("GeoJSON output driver is unavailable.")
+            val output = driver.CreateDataSource(outputPath) ?: error("Could not create output GeoJSON.")
+            try {
+                val outputLayer = output.CreateLayer(layer.GetName() + "_buffer", layer.GetSpatialRef(), layer.GetGeomType())
+                    ?: error("Could not create output layer.")
+                val definition = layer.GetLayerDefn()
+                for (i in 0 until definition.GetFieldCount()) outputLayer.CreateField(definition.GetFieldDefn(i))
+                val outputDefinition = outputLayer.GetLayerDefn()
+                layer.ResetReading()
+                var feature = layer.GetNextFeature()
+                while (feature != null) {
+                    val geometry = feature.GetGeometryRef()
+                    if (geometry != null) {
+                        val buffered = geometry.Buffer(distance, 12)
+                        val outFeature = org.gdal.ogr.Feature(outputDefinition)
+                        outFeature.SetGeometry(buffered)
+                        for (i in 0 until feature.GetFieldCount()) outFeature.SetField(i, feature.GetFieldAsString(i))
+                        outputLayer.CreateFeature(outFeature)
+                        outFeature.delete()
+                        buffered.delete()
+                    }
+                    feature.delete()
+                    feature = layer.GetNextFeature()
+                }
+            } finally {
+                output.delete()
+            }
+        } finally {
+            input.delete()
         }
     }
 
