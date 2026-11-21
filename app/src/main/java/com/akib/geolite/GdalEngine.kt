@@ -692,11 +692,9 @@ object GdalEngine {
             if (algorithm == "aspect") args.addAll(listOf("-compute_edges"))
             if (algorithm == "hillshade") args.addAll(listOf("-z", "1", "-s", scale.toString(), "-az", "315", "-alt", "45", "-compute_edges"))
             val options = org.gdal.gdal.DEMProcessingOptions(args)
-            try {
-                val output = gdal.DEMProcessing(outputPath, source, algorithm, "", options)
-                    ?: error("GDAL $algorithm processing failed.")
-                output.delete()
-            }
+            val output = gdal.DEMProcessing(outputPath, source, algorithm, "", options)
+                ?: error("GDAL $algorithm processing failed.")
+            output.delete()
         } finally { source.delete() }
     }
 
