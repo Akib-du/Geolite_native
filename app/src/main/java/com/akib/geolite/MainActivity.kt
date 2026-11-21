@@ -57,6 +57,7 @@ import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.layers.PropertyFactory.iconImage
 import org.maplibre.android.style.layers.PropertyFactory.iconSize
 import org.maplibre.android.style.layers.PropertyFactory.iconAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.iconAnchor
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.ImageSource
 import org.json.JSONObject
@@ -118,6 +119,8 @@ private fun GeoLiteScreen() {
     var selectedFeatureProperties by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var vectorColor by remember { mutableStateOf("#2878D0") }
     var markerIcon by remember { mutableStateOf("Pin") }
+    var markerAnchor by remember { mutableStateOf("bottom") }
+    var anchorMenu by remember { mutableStateOf(false) }
     var iconMenu by remember { mutableStateOf(false) }
     var vectorWidth by remember { mutableFloatStateOf(2.5f) }
     var pointSize by remember { mutableFloatStateOf(6f) }
@@ -152,7 +155,7 @@ private fun GeoLiteScreen() {
         val iconId = "geolite_icon_${markerIcon.lowercase()}"
         if (style.getImage(iconId) == null) style.addImage(iconId, createMapMarkerIcon(markerIcon, vectorColor))
         style.addLayer(SymbolLayer("${overlay.id}_symbol", overlay.id).withProperties(
-            iconImage(iconId), iconSize(pointSize / 12f), iconAllowOverlap(true)
+            iconImage(iconId), iconSize(pointSize / 12f), iconAllowOverlap(true), iconAnchor(markerAnchor)
         ))
     }
 
@@ -177,6 +180,7 @@ private fun GeoLiteScreen() {
 
     fun applyVectorStyle() {
         map?.getStyle { style ->
+            style.removeImage("geolite_icon_${markerIcon.lowercase()}")
             vectorOverlays.forEach { overlay ->
                 style.removeLayer("${overlay.id}_fill")
                 style.removeLayer("${overlay.id}_line")
@@ -916,9 +920,22 @@ private fun GeoLiteScreen() {
                             }
                         }
                     }
+                    Text("Icon position / anchor")
+                    Box {
+                        TextButton(onClick = { anchorMenu = true }) { Text("$markerAnchor ▾") }
+                        DropdownMenu(expanded = anchorMenu, onDismissRequest = { anchorMenu = false }) {
+                            listOf("center", "bottom", "top", "left", "right").forEach { anchor ->
+                                DropdownMenuItem(text = { Text(anchor) }, onClick = { markerAnchor = anchor; anchorMenu = false })
+                            }
+                        }
+                    }
                     Text("Point size · ${"%.1f".format(pointSize)} px")
                     Slider(value = pointSize, onValueChange = { pointSize = it }, valueRange = 2f..20f)
                     Text("Polygon opacity · ${"%.0f".format(fillOpacityValue * 100)}%")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Show scale division", modifier = Modifier.weight(1f))
+                        Switch(checked = showScale, onCheckedChange = { showScale = it })
+                    }
                     Slider(value = fillOpacityValue, onValueChange = { fillOpacityValue = it }, valueRange = 0.05f..1f)
                 }
             },
