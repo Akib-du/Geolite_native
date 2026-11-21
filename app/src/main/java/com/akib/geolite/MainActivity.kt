@@ -855,8 +855,14 @@ private fun GeoLiteScreen() {
                                                     }
                                                     selectedFeatureFid = props?.get("__fid")?.asString?.toLongOrNull()
                                                     selectedFeatureProperties = values
-                                                    attributeRows = listOf(values)
-                                                    selectedAttributeIndex = 0
+                                                    val rowIndex = selectedFeatureFid?.let { fid ->
+                                                        attributeRows.indexOfFirst { it["__fid"] == fid.toString() }
+                                                    } ?: -1
+                                                    if (rowIndex >= 0) selectedAttributeIndex = rowIndex
+                                                    else {
+                                                        attributeRows = attributeRows + values
+                                                        selectedAttributeIndex = attributeRows.lastIndex
+                                                    }
                                                     selectedPanel = "Table"
                                                     status = "${mapTool}: feature ${selectedFeatureFid ?: "selected"} · ${values.size} attributes"
                                                     if (mapTool == "Select") {
