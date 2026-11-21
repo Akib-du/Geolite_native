@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.pdf.PdfDocument
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -145,6 +146,13 @@ private fun GeoLiteScreen() {
     var lastVectorSourceId by remember { mutableStateOf<String?>(null) }
     var lastRasterPath by remember { mutableStateOf<String?>(null) }
     var showRasterProcessDialog by remember { mutableStateOf(false) }
+    var showRasterCalculatorDialog by remember { mutableStateOf(false) }
+    var showMaskClipDialog by remember { mutableStateOf(false) }
+    var rasterCalcExpression by remember { mutableStateOf("A * 2") }
+    var rasterCalcSecondPath by remember { mutableStateOf("") }
+    var rasterCalcBMenu by remember { mutableStateOf(false) }
+    var rasterSourcePaths by remember { mutableStateOf(listOf<String>()) }
+    var pendingMapExportBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var rasterProcessMode by remember { mutableStateOf("Clip") }
     var clipMinX by remember { mutableStateOf("") }
     var clipMinY by remember { mutableStateOf("") }
@@ -313,6 +321,7 @@ private fun GeoLiteScreen() {
                             imageInfo.west, imageInfo.north, imageInfo.east, imageInfo.south)
                         activity.runOnUiThread {
                             lastRasterPath = copied.absolutePath
+                            rasterSourcePaths = (rasterSourcePaths + copied.absolutePath).distinct()
                             rasterOverlays = rasterOverlays + overlay
                             selectedFile = displayName
                             rasterLayers = rasterLayers + "$displayName · $description"
@@ -565,6 +574,37 @@ private fun GeoLiteScreen() {
         }
     }
 
+    val pngExportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+        val bitmap = pendingMapExportBitmap
+        if (uri != null && bitmap != null) {
+            try {
+                context.contentResolver.openOutputStream(uri, "w")?.use { stream ->
+                    require(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "PNG encoding failed." }
+                } ?: error("Could not open the selected output file.")
+                status = "Map PNG exported successfully."
+            } catch (e: Exception) { status = "PNG export failed: ${e.localizedMessage}" }
+        }
+        pendingMapExportBitmap = null
+    }
+
+    val pdfExportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val bitmap = pendingMapExportBitmap
+        if (uri != null && bitmap != null) {
+            val document = PdfDocument()
+            try {
+                val pageInfo = PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create()
+                val page = document.startPage(pageInfo)
+                page.canvas.drawBitmap(bitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+                document.finishPage(page)
+                context.contentResolver.openOutputStream(uri, "w")?.use { stream ->
+                    document.writeTo(stream)
+                } ?: error("Could not open the selected PDF file.")
+                status = "Map PDF exported successfully."
+            } catch (e: Exception) { status = "PDF export failed: ${e.localizedMessage}" }
+            finally { document.close(); pendingMapExportBitmap = null }
+        } else pendingMapExportBitmap = null
+    }
+
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
@@ -582,6 +622,21 @@ private fun GeoLiteScreen() {
                     .addOnFailureListener { status = "Could not get location: ${it.localizedMessage}" }
             } catch (_: SecurityException) { status = "Location permission is required." }
         } else status = "Location permission denied."
+    }
+
+    fun beginMapExport(asPdf: Boolean) {
+        val currentMap = map
+        if (currentMap == null) {
+            status = "Map is not ready yet."
+            return
+        }
+        status = "Capturing map…"
+        currentMap.snapshot { bitmap ->
+            pendingMapExportBitmap = bitmap
+            val name = "GeoLite_Map_${System.currentTimeMillis()}" + if (asPdf) ".pdf" else ".png"
+            if (asPdf) pdfExportPicker.launch(name) else pngExportPicker.launch(name)
+            status = "Choose where to save the map."
+        }
     }
 
     Scaffold(
@@ -612,6 +667,22 @@ private fun GeoLiteScreen() {
                     Box {
                         TextButton(onClick = { toolsMenu = true }) { Text("Tools ▾") }
                         DropdownMenu(expanded = toolsMenu, onDismissRequest = { toolsMenu = false }) {
+                            DropdownMenuItem(text = { Text("Export map as PNG") }, onClick = {
+                                toolsMenu = false; beginMapExport(false)
+                            })
+                            DropdownMenuItem(text = { Text("Export map as PDF") }, onClick = {
+                                toolsMenu = false; beginMapExport(true)
+                            })
+                            DropdownMenuItem(text = { Text("Raster calculator") }, onClick = {
+                                toolsMenu = false
+                                if (lastRasterPath == null) status = "Open a raster first."
+                                else showRasterCalculatorDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Clip raster by polygon mask") }, onClick = {
+                                toolsMenu = false
+                                if (lastRasterPath == null || lastVectorPath == null) status = "Open a raster and a polygon mask layer first."
+                                else showMaskClipDialog = true
+                            })
                             DropdownMenuItem(text = { Text("Reproject raster") }, onClick = {
                                 toolsMenu = false
                                 if (lastRasterPath == null) status = "Open a TIFF raster first."
@@ -1111,6 +1182,112 @@ private fun GeoLiteScreen() {
                 }) { Text("Run") }
             },
             dismissButton = { TextButton(onClick = { showVectorReprojectDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showRasterCalculatorDialog) {
+        AlertDialog(
+            onDismissRequest = { showRasterCalculatorDialog = false },
+            title = { Text("Raster calculator") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("A = ${lastRasterPath?.let { File(it).name } ?: "No raster"}")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("B = ")
+                        Box {
+                            TextButton(onClick = { rasterCalcBMenu = true }) {
+                                Text(if (rasterCalcSecondPath.isBlank()) "No second raster" else File(rasterCalcSecondPath).name)
+                            }
+                            DropdownMenu(expanded = rasterCalcBMenu, onDismissRequest = { rasterCalcBMenu = false }) {
+                                DropdownMenuItem(text = { Text("No second raster") }, onClick = {
+                                    rasterCalcSecondPath = ""; rasterCalcBMenu = false
+                                })
+                                rasterSourcePaths.filter { it != lastRasterPath }.forEach { path ->
+                                    DropdownMenuItem(text = { Text(File(path).name) }, onClick = {
+                                        rasterCalcSecondPath = path; rasterCalcBMenu = false
+                                    })
+                                }
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = rasterCalcExpression,
+                        onValueChange = { rasterCalcExpression = it },
+                        label = { Text("Expression") },
+                        placeholder = { Text("A * 2 + B") },
+                        singleLine = true
+                    )
+                    Text("Operators: +  −  ×  ÷  ^  ( ). Use A and optional B.", style = MaterialTheme.typography.bodySmall)
+                    Text("For two rasters, dimensions, CRS and pixel alignment must match.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastRasterPath
+                    if (input == null || rasterCalcExpression.isBlank()) status = "Choose an input raster and enter an expression."
+                    else {
+                        showRasterCalculatorDialog = false
+                        processing = true
+                        Thread {
+                            try {
+                                val dir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                                dir.mkdirs()
+                                val output = File(dir, "raster_calc_${System.currentTimeMillis()}.tif")
+                                GdalEngine.rasterCalculator(input, rasterCalcSecondPath.ifBlank { null }, rasterCalcExpression, output.absolutePath)
+                                activity.runOnUiThread {
+                                    processing = false
+                                    rasterSourcePaths = (rasterSourcePaths + output.absolutePath).distinct()
+                                    status = "Raster calculation saved: ${output.absolutePath}. Open it from Catalog to view."
+                                }
+                            } catch (e: Exception) {
+                                activity.runOnUiThread { processing = false; status = "Raster calculator failed: ${e.localizedMessage}" }
+                            }
+                        }.start()
+                    }
+                }) { Text("Run calculation") }
+            },
+            dismissButton = { TextButton(onClick = { showRasterCalculatorDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showMaskClipDialog) {
+        AlertDialog(
+            onDismissRequest = { showMaskClipDialog = false },
+            title = { Text("Clip raster by polygon mask") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Raster: ${lastRasterPath?.let { File(it).name } ?: "None"}")
+                    Text("Mask: ${lastVectorPath?.let { File(it).name } ?: "None"}")
+                    Text("The polygon layer will be used as a cutline. Output outside the mask will be transparent.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastRasterPath
+                    val mask = lastVectorPath
+                    if (input == null || mask == null) status = "Open a raster and polygon mask first."
+                    else {
+                        showMaskClipDialog = false
+                        processing = true
+                        Thread {
+                            try {
+                                val dir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                                dir.mkdirs()
+                                val output = File(dir, "mask_clip_${System.currentTimeMillis()}.tif")
+                                GdalEngine.clipRasterByMask(input, mask, output.absolutePath, lastVectorLayerIndex)
+                                activity.runOnUiThread {
+                                    processing = false
+                                    rasterSourcePaths = (rasterSourcePaths + output.absolutePath).distinct()
+                                    status = "Mask-clipped raster saved: ${output.absolutePath}. Open it from Catalog to view."
+                                }
+                            } catch (e: Exception) {
+                                activity.runOnUiThread { processing = false; status = "Mask clipping failed: ${e.localizedMessage}" }
+                            }
+                        }.start()
+                    }
+                }) { Text("Clip raster") }
+            },
+            dismissButton = { TextButton(onClick = { showMaskClipDialog = false }) { Text("Cancel") } }
         )
     }
 
