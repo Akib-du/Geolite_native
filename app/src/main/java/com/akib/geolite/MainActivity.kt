@@ -109,6 +109,8 @@ private fun GeoLiteScreen() {
     var showAttributeEditDialog by remember { mutableStateOf(false) }
     var editText by remember { mutableStateOf("") }
     var editFieldName by remember { mutableStateOf("") }
+    var newFieldType by remember { mutableStateOf("String") }
+    var fieldTypeMenu by remember { mutableStateOf(false) }
     var editFieldValue by remember { mutableStateOf("") }
     var manualLat by remember { mutableStateOf("") }
     var manualLon by remember { mutableStateOf("") }
@@ -1008,6 +1010,14 @@ private fun GeoLiteScreen() {
                     Text("Shapefile field names: max 10 characters.")
                     OutlinedTextField(value = editFieldName, onValueChange = { editFieldName = it },
                         label = { Text("Field name") }, singleLine = true)
+                    Box {
+                        TextButton(onClick = { fieldTypeMenu = true }) { Text("Type: $newFieldType ▾") }
+                        DropdownMenu(expanded = fieldTypeMenu, onDismissRequest = { fieldTypeMenu = false }) {
+                            listOf("String", "Integer", "Real", "Date").forEach { type ->
+                                DropdownMenuItem(text = { Text(type) }, onClick = { newFieldType = type; fieldTypeMenu = false })
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1015,7 +1025,7 @@ private fun GeoLiteScreen() {
                     val path = lastVectorPath
                     if (path == null) status = "Open or create an editable Shapefile first."
                     else try {
-                        GdalEngine.addField(path, lastVectorLayerIndex, editFieldName)
+                        GdalEngine.addField(path, lastVectorLayerIndex, editFieldName, newFieldType)
                         refreshActiveVector()
                         status = "Field $editFieldName added."
                         showFieldDialog = false
