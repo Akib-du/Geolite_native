@@ -1,44 +1,56 @@
 # GeoLite Native
 
-A native Android GIS application for phones and landscape tablets. This repository is separate from GeoLite V2.
+Native Android GIS application built with Kotlin, Jetpack Compose, MapLibre Native, and GDAL/OGR. This repository is separate from `GeoLite_V2`.
 
-## Current development build
+## Data formats and map display
 
-- Kotlin + Jetpack Compose Android application with MapLibre Native map rendering.
-- Online OpenFreeMap Liberty and Positron basemaps.
-- GDAL 3.7.0 / PROJ 9.2.1 Android AAR downloaded by CI.
-- GeoJSON, KML and Shapefile ZIP vector import, with coordinate conversion to WGS 84 for map display.
-- GeoTIFF, Erdas IMG and VRT raster metadata inspection. Raster drawing is not implemented yet.
-- OGR vector buffer output to GeoJSON and GDAL Warp raster reprojection to GeoTIFF.
-- Attribute inspection for the most recently loaded vector feature class.
-- Android Storage Access Framework file and folder selection, GPS placemarks and long-press manual placemarks.
+- **Shapefile:** open a folder containing the complete `.shp/.shx/.dbf` set, or open a ZIP containing the set. Folder import preserves companion files.
+- **File Geodatabase:** select the `.gdb` folder. The app checks the packaged `OpenFileGDB` driver, lists feature classes, and lets the user load each class. GDAL 3.7 OpenFileGDB access is read-only in this app.
+- **GPX:** reads waypoint, route, track and related layers when the packaged GDAL GPX driver is available. The layer chooser lists the available GPX layers.
+- **GeoTIFF:** opens raster metadata and renders a georeferenced map preview. GDAL warps the preview to WGS84 and scales its width to 2048 pixels for mobile display. Original raster data is retained for reprojection.
+- **Runtime driver status:** the Catalog pane reports whether the packaged GDAL runtime actually exposes SHP, FileGDB, GPX and GTiff drivers.
 
-## File Geodatabase (.gdb)
+The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB and PNG drivers explicitly enabled. Driver availability is still checked at runtime; the app does not assume that a build flag guarantees a working driver.
 
-The app now includes a folder picker and a FileGDB import flow. It copies the selected `.gdb` folder into app-private cache, checks whether the bundled GDAL runtime exposes the `OpenFileGDB` driver, lists feature classes, and lets the user choose a feature class to load.
+## Basemaps and map elements
 
-**Important:** this is conditional support until the Android AAR has been verified on a real FileGDB dataset and the app on a physical Android device. The app will report a clear error if `OpenFileGDB` is absent from the packaged GDAL build. GDAL's OpenFileGDB driver is built-in by default in standard GDAL builds and provides vector access without the proprietary Esri FileGDB SDK, but a third-party Android binary may have a different driver configuration. See the [GDAL OpenFileGDB documentation](https://gdal.org/en/stable/drivers/vector/openfilegdb.html).
+- OpenStreetMap raster tiles.
+- Esri World Imagery satellite tiles.
+- OpenFreeMap Liberty and Positron styles.
+- No basemap.
+- Vector symbology controls: color, line width, polygon opacity, point icon (pin/circle/star/square), icon size and icon anchor/position.
+- A dynamic on-map scale division in metres/kilometres, with a visibility toggle.
+- Map click/long-press placemarks, coordinate-based placemarks and GPS placemarks. GPS requests Android location permission at runtime.
+- On-map Identify and Select tools query rendered vector features and show their attributes; Select adds a highlight overlay.
 
-The current FileGDB loader converts a selected feature class to an in-memory GeoJSON FeatureCollection for MapLibre. Very large feature classes may therefore require paging/streaming improvements before they are practical on lower-memory devices. It is currently a read/display workflow, not full FileGDB editing.
+## Tools and editing
 
-## Known limitations
+- Raster reprojection tool with a user-entered target CRS (for example `EPSG:32646`); output is GeoTIFF in app-specific GeoLite/Processing storage.
+- Initial vector buffer operation.
+- Create WGS84 Shapefile feature classes with Point, Line or Polygon geometry.
+- Point digitizing into the active point Shapefile by tapping the map in Edit point mode.
+- Add attribute fields (String, Integer, Real or Date), edit field values for a selected feature, and delete selected features.
+- Attribute table supports selecting a feature and editing individual field values.
 
-- FileGDB support depends on the OpenFileGDB driver actually being present in the packaged AAR; runtime detection is included, but a sample geodatabase/device test is still required.
-- GeoPackage support has not been verified or enabled.
-- Raster datasets can be inspected but are not yet rendered as map overlays.
-- Raster processing UI is limited to reprojection; raster calculator, clip, resampling controls and raster symbology remain pending.
-- Vector buffer is the initial vector processing operation; broader overlay, dissolve, clip and editing tools remain pending.
-- The attribute table currently displays the latest imported vector layer only.
-- Physical tablet testing has not yet been completed.
+**Editing scope:** write operations currently target Shapefiles. FileGDB and GPX are treated as read-only; the current FileGDB driver/build and workflow do not provide a complete editable FileGDB geodatabase experience. Map-click digitizing currently creates Point features only; line and polygon feature classes can be created but their drawing/editing tools are not yet implemented. The attribute table is currently a mobile inspection/editor for the selected layer, not a full desktop spreadsheet replacement.
+
+## Important limitations / testing status
+
+- Large vector layers are converted to in-memory GeoJSON for display and can consume substantial memory. Streaming, paging and spatial filtering are future work.
+- Raster preview is a single georeferenced image overlay, not a tiled raster renderer; very large or rotated/complex rasters may need preprocessing.
+- Raster processing currently includes reprojection; raster calculator, clip, resampling controls, multi-band renderer and raster symbology are pending.
+- Vector processing currently includes buffer; clip, dissolve, overlay, spatial join and topology tools are pending.
+- Reprojection UI currently targets raster inputs; vector reprojection UI is pending.
+- Physical-device testing and validation against sample SHP, FileGDB, GPX and TIFF datasets are required before describing the app as production-ready.
 
 ## Build
 
-Open this repository in Android Studio (JDK 17, Android SDK 36), or run:
+GitHub Actions builds a debug APK and publishes it as the `GeoLite-Native-debug-apk` artifact after the custom GDAL Android engine and app build succeed.
+
+Local Android app build (after placing a compatible GDAL AAR at `app/libs/gdal-3.7.0.aar`):
 
 ```bash
 gradle assembleDebug
 ```
 
 APK output: `app/build/outputs/apk/debug/app-debug.apk`.
-
-GitHub Actions builds a debug APK on pushes to `main` and uploads it as the `GeoLite-Native-debug-apk` artifact when the build succeeds.
