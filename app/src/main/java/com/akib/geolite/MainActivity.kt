@@ -79,6 +79,9 @@ private fun GeoLiteScreen() {
     var showBufferDialog by remember { mutableStateOf(false) }
     var bufferDistance by remember { mutableStateOf("100") }
     var processing by remember { mutableStateOf(false) }
+    var pendingGdbPath by remember { mutableStateOf<String?>(null) }
+    var pendingGdbLayers by remember { mutableStateOf(emptyList<GdalEngine.VectorLayerInfo>()) }
+    var showGdbLayerDialog by remember { mutableStateOf(false) }
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
@@ -169,64 +172,96 @@ private fun GeoLiteScreen() {
         }
     }
 
+    fun loadFileGdbLayer(gdbPath: String, layerInfo: GdalEngine.VectorLayerInfo) {
+        processing = true
+        showGdbLayerDialog = false
+        status = "Loading ${layerInfo.name} from FileGDB…"
+        Thread {
+            try {
+                val result = GdalEngine.openVector(gdbPath, layerInfo.index)
+                val featureArray = JSONObject(result.geoJson).optJSONArray("features") ?: org.json.JSONArray()
+                val parsedRows = (0 until featureArray.length()).map { index ->
+                    val properties = featureArray.getJSONObject(index).optJSONObject("properties") ?: JSONObject()
+                    val row = linkedMapOf<String, String>()
+                    val keys = properties.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = properties.opt(key)
+                        row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
+                    }
+                    row
+                }
+                val sourceId = "filegdb_vector_${System.currentTimeMillis()}"
+                activity.runOnUiThread {
+                    val activeMap = map
+                    if (activeMap == null) {
+                        status = "Feature class read, but the map is not ready. Try loading it again."
+                        processing = false
+                    } else {
+                        activeMap.getStyle { style ->
+                            try {
+                                style.addSource(GeoJsonSource(sourceId, result.geoJson))
+                                style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
+                                    fillColor("#4F83CC"), fillOpacity(0.30f)
+                                ))
+                                style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
+                                    lineColor("#245A9A"), lineWidth(2.0f)
+                                ))
+                                style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
+                                    circleColor("#E46B35"), circleRadius(5.0f)
+                                ))
+                                vectorLayers = vectorLayers + "${result.layerName} · ${result.featureCount} features (FileGDB)"
+                                attributeRows = parsedRows
+                                selectedAttributeIndex = 0
+                                lastVectorPath = gdbPath
+                                selectedFile = File(gdbPath).name
+                                status = "Loaded ${result.layerName}: ${result.featureCount} features"
+                                selectedPanel = "Layers"
+                            } catch (e: Exception) {
+                                status = "Feature class read, but map rendering failed: ${e.localizedMessage}"
+                            } finally {
+                                processing = false
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    status = "Could not load ${layerInfo.name}: ${e.localizedMessage}"
+                    processing = false
+                    Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
     val fileGdbPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
         if (treeUri != null) {
-            status = "Copying FileGDB from selected folder…"
+            status = "Copying FileGDB folder…"
+            processing = true
             Thread {
                 try {
                     val gdbFolder = copyDocumentTree(context, treeUri)
                     require(gdbFolder.name.endsWith(".gdb", true)) {
                         "Select the .gdb folder itself, not its parent folder."
                     }
-                    val layers = GdalEngine.listVectorLayers(gdbFolder.absolutePath)
-                    require(layers.isNotEmpty()) { "The selected FileGDB contains no readable vector feature classes." }
-                    val first = GdalEngine.openVector(gdbFolder.absolutePath, layers.first().index)
-                    val featureArray = JSONObject(first.geoJson).optJSONArray("features") ?: org.json.JSONArray()
-                    val parsedRows = (0 until featureArray.length()).map { index ->
-                        val properties = featureArray.getJSONObject(index).optJSONObject("properties") ?: JSONObject()
-                        val row = linkedMapOf<String, String>()
-                        val keys = properties.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            val value = properties.opt(key)
-                            row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
-                        }
-                        row
+                    require(GdalEngine.hasOpenFileGdbDriver()) {
+                        "This GDAL package does not include the OpenFileGDB driver. FileGDB support requires a GDAL build with OpenFileGDB enabled."
                     }
-                    val sourceId = "filegdb_vector_${System.currentTimeMillis()}"
+                    val layers = GdalEngine.listVectorLayers(gdbFolder.absolutePath)
+                    require(layers.isNotEmpty()) { "No readable vector feature classes were found in this FileGDB." }
                     activity.runOnUiThread {
-                        val activeMap = map
-                        if (activeMap == null) {
-                            status = "FileGDB copied and inspected, but map is not ready. Reopen it."
-                        } else {
-                            activeMap.getStyle { style ->
-                                try {
-                                    style.addSource(GeoJsonSource(sourceId, first.geoJson))
-                                    style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
-                                        fillColor("#4F83CC"), fillOpacity(0.30f)
-                                    ))
-                                    style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
-                                        lineColor("#245A9A"), lineWidth(2.0f)
-                                    ))
-                                    style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
-                                        circleColor("#E46B35"), circleRadius(5.0f)
-                                    ))
-                                    vectorLayers = vectorLayers + "${first.layerName} · ${first.featureCount} features (FileGDB)"
-                                    attributeRows = parsedRows
-                                    selectedAttributeIndex = 0
-                                    lastVectorPath = gdbFolder.absolutePath
-                                    selectedFile = gdbFolder.name
-                                    status = "FileGDB opened: ${layers.size} feature class(es). Loaded first: ${first.layerName}. Driver: OpenFileGDB"
-                                    selectedPanel = "Layers"
-                                } catch (e: Exception) {
-                                    status = "FileGDB read succeeded, but map rendering failed: ${e.localizedMessage}"
-                                }
-                            }
-                        }
+                        pendingGdbPath = gdbFolder.absolutePath
+                        pendingGdbLayers = layers
+                        showGdbLayerDialog = true
+                        status = "Found ${layers.size} feature class(es). Choose one to add."
+                        processing = false
+                        selectedPanel = "Layers"
                     }
                 } catch (e: Exception) {
                     activity.runOnUiThread {
-                        status = "FileGDB open failed: ${e.localizedMessage ?: "OpenFileGDB driver may be missing."}"
+                        status = "FileGDB import failed: ${e.localizedMessage ?: "Could not read this geodatabase."}"
+                        processing = false
                         Toast.makeText(context, status, Toast.LENGTH_LONG).show()
                     }
                 }
@@ -234,7 +269,7 @@ private fun GeoLiteScreen() {
         }
     }
 
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (allowed) {
@@ -406,6 +441,39 @@ private fun GeoLiteScreen() {
         }
     }
 
+
+    if (showGdbLayerDialog) {
+        AlertDialog(
+            onDismissRequest = { showGdbLayerDialog = false },
+            title = { Text("FileGDB feature classes") },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                    items(pendingGdbLayers) { layer ->
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Text(layer.name, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (layer.featureCount >= 0) "${layer.featureCount} features" else "Feature count unavailable",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.DarkGray
+                            )
+                            TextButton(
+                                onClick = {
+                                    val path = pendingGdbPath
+                                    if (path != null) loadFileGdbLayer(path, layer)
+                                },
+                                enabled = !processing,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Add this feature class to map") }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGdbLayerDialog = false }) { Text("Close") }
+            }
+        )
+    }
 
     if (showBufferDialog) {
         AlertDialog(
