@@ -160,13 +160,19 @@ object GdalEngine {
 
     fun createPointShapefile(path: String, layerName: String) = createShapefile(path, layerName, "Point")
 
-    fun addField(path: String, layerIndex: Int, fieldName: String) {
+    fun addField(path: String, layerIndex: Int, fieldName: String, fieldType: String = "String") {
         require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,9}"))) { "Shapefile field names must be 1–10 letters/numbers/underscores and start with a letter." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing. It may be read-only.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
-            val field = org.gdal.ogr.FieldDefn(fieldName, ogr.OFTString)
+            val ogrType = when (fieldType.lowercase()) {
+                "integer" -> ogr.OFTInteger
+                "real" -> ogr.OFTReal
+                "date" -> ogr.OFTDate
+                else -> ogr.OFTString
+            }
+            val field = org.gdal.ogr.FieldDefn(fieldName, ogrType)
             try {
                 require(layer.CreateField(field) == 0) { "Could not add field. It may already exist or exceed driver limits." }
             } finally { field.delete() }
