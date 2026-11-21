@@ -103,6 +103,7 @@ private fun GeoLiteScreen() {
     var vectorOverlays by remember { mutableStateOf(listOf<VectorOverlay>()) }
     var rasterOverlays by remember { mutableStateOf(listOf<RasterOverlay>()) }
     var mapTool by remember { mutableStateOf("Pan") }
+    var digitizingVertices by remember { mutableStateOf(listOf<Pair<Double, Double>>()) }
     var showStyleDialog by remember { mutableStateOf(false) }
     var showManualPinDialog by remember { mutableStateOf(false) }
     var showCreateLayerDialog by remember { mutableStateOf(false) }
@@ -619,6 +620,11 @@ private fun GeoLiteScreen() {
                                     exportGdbPicker.launch(null)
                                 }
                             })
+                            DropdownMenuItem(text = { Text("Edit selected line/polygon vertex") }, onClick = {
+                                editMenu = false
+                                if (selectedFeatureFid == null) status = "Select a line or polygon feature first."
+                                else { mapTool = "Edit vertex"; status = "Tap near the vertex you want to move." }
+                            })
                             DropdownMenuItem(text = { Text("Move selected point") }, onClick = {
                                 editMenu = false; mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new position."
                             })
@@ -831,7 +837,24 @@ private fun GeoLiteScreen() {
                                                 } catch (e: Exception) { status = "Could not add feature: ${e.localizedMessage}" }
                                                 true
                                             }
-                                            "Move point" -> {
+                                            "Add Line", "Add Polygon" -> {
+                                                 digitizingVertices = digitizingVertices + (point.longitude to point.latitude)
+                                                 status = "${mapTool.removePrefix("Add ")} vertex ${digitizingVertices.size} added · tap more vertices, then Finish."
+                                                 true
+                                             }
+                                             "Edit vertex" -> {
+                                                 val path = lastVectorPath
+                                                 val fid = selectedFeatureFid
+                                                 if (path == null || fid == null) status = "Select a line or polygon feature first."
+                                                 else try {
+                                                     val index = GdalEngine.moveNearestVertex(path, lastVectorLayerIndex, fid, point.longitude, point.latitude)
+                                                     refreshActiveVector()
+                                                     status = "Vertex ${index + 1} moved to %.6f, %.6f.".format(point.latitude, point.longitude)
+                                                     mapTool = "Pan"
+                                                 } catch (e: Exception) { status = "Vertex edit failed: ${e.localizedMessage}" }
+                                                 true
+                                             }
+                                             "Move point" -> {
                                                 val path = lastVectorPath
                                                 val fid = selectedFeatureFid
                                                 if (path == null || fid == null) status = "Identify/select a point feature first."
@@ -918,13 +941,41 @@ private fun GeoLiteScreen() {
                         FilterChip(selected = mapTool == "Pan", onClick = { mapTool = "Pan"; status = "Pan/zoom mode." }, label = { Text("Pan") })
                         FilterChip(selected = mapTool == "Add feature", onClick = { mapTool = "Add feature"; status = "Tap the map to create a point in the active Shapefile." }, label = { Text("Edit point") })
                         FilterChip(selected = mapTool == "Move point", onClick = { mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new location." }, label = { Text("Move point") })
+                         FilterChip(selected = mapTool == "Add Line", onClick = { digitizingVertices = emptyList(); mapTool = "Add Line"; status = "Tap the map to add line vertices. Finish after at least 2." }, label = { Text("Draw line") })
+                         FilterChip(selected = mapTool == "Add Polygon", onClick = { digitizingVertices = emptyList(); mapTool = "Add Polygon"; status = "Tap the map to add polygon vertices. Finish after at least 3." }, label = { Text("Draw polygon") })
+                         FilterChip(selected = mapTool == "Edit vertex", onClick = { mapTool = "Edit vertex"; status = "Select a line/polygon, then tap near a vertex to move it." }, label = { Text("Edit vertex") })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { showManualPinDialog = true }) { Text("Coordinates") }
                         TextButton(onClick = { showStyleDialog = true }) { Text("Layer style") }
                     }
                 }
-                if (showScale) {
+                if (mapTool == "Add Line" || mapTool == "Add Polygon") {
+                     Surface(modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp), color = Color.White,
+                         shape = MaterialTheme.shapes.medium, shadowElevation = 4.dp) {
+                         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+                             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                             Text("${digitizingVertices.size} vertices", style = MaterialTheme.typography.labelMedium)
+                             TextButton(onClick = { digitizingVertices = digitizingVertices.dropLast(1) }, enabled = digitizingVertices.isNotEmpty()) { Text("Undo") }
+                             Button(onClick = {
+                                 val path = lastVectorPath
+                                 val needed = if (mapTool == "Add Polygon") 3 else 2
+                                 if (path == null) status = "Create or open an editable line/polygon layer first."
+                                 else if (digitizingVertices.size < needed) status = "Add at least $needed vertices before finishing."
+                                 else {
+                                     val type = if (mapTool == "Add Polygon") "Polygon" else "Line"
+                                     try {
+                                         GdalEngine.createGeometryFeature(path, lastVectorLayerIndex, type, digitizingVertices)
+                                         digitizingVertices = emptyList(); mapTool = "Pan"; refreshActiveVector()
+                                         status = "$type feature saved."
+                                     } catch (e: Exception) { status = "Could not save $type: ${e.localizedMessage}" }
+                                 }
+                             }) { Text("Finish") }
+                             TextButton(onClick = { digitizingVertices = emptyList(); mapTool = "Pan"; status = "Digitizing cancelled." }) { Text("Cancel") }
+                         }
+                     }
+                 }
+                 if (showScale) {
                     val scaleAlignment = when (scalePosition) {
                         "Top left" -> Alignment.TopStart
                         "Top right" -> Alignment.TopEnd
@@ -1137,7 +1188,7 @@ private fun GeoLiteScreen() {
                             }
                         }
                     }
-                    Text("Creates a WGS84 Shapefile or FileGDB feature class. Map-click digitizing is available for Point geometry.",
+                    Text("Creates a WGS84 feature class. Use Edit point, Draw line or Draw polygon on the map to digitize geometry; vertex editing is available for selected lines and polygons.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             },
