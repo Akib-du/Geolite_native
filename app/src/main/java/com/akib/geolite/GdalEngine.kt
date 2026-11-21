@@ -632,6 +632,79 @@ object GdalEngine {
         }
     }
 
+    /** Generate terrain derivatives from an elevation raster using GDAL DEMProcessing. */
+    fun terrainRaster(inputPath: String, outputPath: String, operation: String, scale: Double = 1.0) {
+        initialize()
+        val algorithm = when (operation.lowercase()) {
+            "slope" -> "slope"
+            "aspect" -> "aspect"
+            "hillshade" -> "hillshade"
+            else -> error("Choose Slope, Aspect or Hillshade.")
+        }
+        require(scale > 0.0 && scale.isFinite()) { "Scale must be a positive number." }
+        val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly)
+            ?: error("Could not open input elevation raster.")
+        try {
+            val args = java.util.Vector<String>()
+            if (algorithm == "slope") args.addAll(listOf("-s", scale.toString(), "-compute_edges"))
+            if (algorithm == "aspect") args.addAll(listOf("-compute_edges"))
+            if (algorithm == "hillshade") args.addAll(listOf("-z", "1", "-s", scale.toString(), "-az", "315", "-alt", "45", "-compute_edges"))
+            val options = org.gdal.gdal.DEMProcessingOptions(args)
+            try {
+                val output = gdal.DEMProcessing(outputPath, source, algorithm, options)
+                    ?: error("GDAL $algorithm processing failed.")
+                output.delete()
+            } finally { options.delete() }
+        } finally { source.delete() }
+    }
+
+    /** Clip a raster to an axis-aligned bounding box in the source raster CRS. */
+    fun clipRasterByExtent(inputPath: String, outputPath: String, minX: Double, minY: Double, maxX: Double, maxY: Double) {
+        initialize()
+        require(listOf(minX, minY, maxX, maxY).all { it.isFinite() } && maxX > minX && maxY > minY) {
+            "Enter a valid extent: minimum coordinates must be smaller than maximum coordinates."
+        }
+        val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly) ?: error("Could not open input raster.")
+        try {
+            val args = java.util.Vector<String>().apply {
+                addAll(listOf("-of", "GTiff", "-te", minX.toString(), minY.toString(), maxX.toString(), maxY.toString()))
+            }
+            val options = org.gdal.gdal.WarpOptions(args)
+            try {
+                val output = gdal.Warp(outputPath, arrayOf(source), options)
+                    ?: error("Raster clipping failed. Check that the extent overlaps the source raster.")
+                output.delete()
+            } finally { options.delete() }
+        } finally { source.delete() }
+    }
+
+    /** Resample a raster to a target pixel size using GDAL Warp. */
+    fun resampleRaster(inputPath: String, outputPath: String, pixelWidth: Double, pixelHeight: Double, method: String) {
+        initialize()
+        require(pixelWidth > 0.0 && pixelHeight > 0.0 && pixelWidth.isFinite() && pixelHeight.isFinite()) {
+            "Pixel dimensions must be positive finite numbers."
+        }
+        val algorithm = when (method.lowercase()) {
+            "nearest" -> "near"
+            "bilinear" -> "bilinear"
+            "cubic" -> "cubic"
+            "average" -> "average"
+            else -> error("Resampling method must be Nearest, Bilinear, Cubic or Average.")
+        }
+        val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly) ?: error("Could not open input raster.")
+        try {
+            val args = java.util.Vector<String>().apply {
+                addAll(listOf("-of", "GTiff", "-tr", pixelWidth.toString(), pixelHeight.toString(), "-r", algorithm))
+            }
+            val options = org.gdal.gdal.WarpOptions(args)
+            try {
+                val output = gdal.Warp(outputPath, arrayOf(source), options)
+                    ?: error("Raster resampling failed.")
+                output.delete()
+            } finally { options.delete() }
+        } finally { source.delete() }
+    }
+
     fun describeRaster(info: RasterInfo): String =
         "${info.width} × ${info.height} px · ${info.bands} band(s) · ${info.dataType}"
 }
