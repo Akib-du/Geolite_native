@@ -571,7 +571,7 @@ private fun GeoLiteScreen() {
                                 editMenu = false; showAttributeEditDialog = true
                             })
                             DropdownMenuItem(text = { Text("Move selected point") }, onClick = {
-                                editMenu = false; mapTool = "Move point"; status = "Select a point feature, then tap its new position."
+                                editMenu = false; mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new position."
                             })
                             DropdownMenuItem(text = { Text("Delete selected feature") }, onClick = {
                                 editMenu = false
@@ -835,7 +835,7 @@ private fun GeoLiteScreen() {
                                     }
                                     nativeMap.addOnCameraIdleListener {
                                         val centerLat = nativeMap.cameraPosition.target?.latitude ?: 0.0
-                                        val meters = nativeMap.projection.getMetersPerPixelAtLatitude(centerLat) * 100.0
+                                        val meters = nativeMap.projection.getMetersPerPixelAtLatitude(centerLat) * 100.0 * context.resources.displayMetrics.density
                                         scaleLabel = if (meters >= 1000) "${"%.2f".format(meters / 1000)} km / 100 px"
                                             else "${"%.0f".format(meters)} m / 100 px"
                                     }
@@ -861,7 +861,7 @@ private fun GeoLiteScreen() {
                         FilterChip(selected = mapTool == "Select", onClick = { mapTool = "Select"; status = "Tap a feature to select it." }, label = { Text("Select") })
                         FilterChip(selected = mapTool == "Pan", onClick = { mapTool = "Pan"; status = "Pan/zoom mode." }, label = { Text("Pan") })
                         FilterChip(selected = mapTool == "Add feature", onClick = { mapTool = "Add feature"; status = "Tap the map to create a point in the active Shapefile." }, label = { Text("Edit point") })
-                        FilterChip(selected = mapTool == "Move point", onClick = { mapTool = "Move point"; status = "Identify/select a point feature, then tap its new location." }, label = { Text("Move point") })
+                        FilterChip(selected = mapTool == "Move point", onClick = { mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new location." }, label = { Text("Move point") })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { showManualPinDialog = true }) { Text("Coordinates") }
