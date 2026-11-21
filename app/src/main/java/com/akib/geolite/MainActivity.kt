@@ -201,14 +201,14 @@ private fun GeoLiteScreen() {
 
     fun applyVectorStyle() {
         map?.getStyle { style ->
-            style.removeImage("geolite_icon_${markerIcon.lowercase()}")
             vectorOverlays.forEach { overlay ->
                 style.removeLayer("${overlay.id}_fill")
                 style.removeLayer("${overlay.id}_line")
                 style.removeLayer("${overlay.id}_point")
                 style.removeLayer("${overlay.id}_symbol")
-                addVectorOverlayToStyle(style, overlay)
             }
+            style.removeImage("geolite_icon_${markerIcon.lowercase()}")
+            vectorOverlays.forEach { overlay -> addVectorOverlayToStyle(style, overlay) }
             status = "Layer symbology updated"
         }
     }
