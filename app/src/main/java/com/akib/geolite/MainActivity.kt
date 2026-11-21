@@ -108,6 +108,7 @@ private fun GeoLiteScreen() {
     var showScale by remember { mutableStateOf(true) }
     var rasterLayers by remember { mutableStateOf(listOf<String>()) }
     var lastVectorPath by remember { mutableStateOf<String?>(null) }
+    var lastVectorLayerIndex by remember { mutableIntStateOf(0) }
     var lastRasterPath by remember { mutableStateOf<String?>(null) }
     var showBufferDialog by remember { mutableStateOf(false) }
     var bufferDistance by remember { mutableStateOf("100") }
@@ -241,6 +242,7 @@ private fun GeoLiteScreen() {
                                         attributeRows = parsedRows
                                         selectedAttributeIndex = 0
                                         lastVectorPath = vectorFile.absolutePath
+                                        lastVectorLayerIndex = 0
                                         selectedFile = displayName
                                         status = "Vector layer opened: $layerLabel · ${result.featureCount} features · GDAL ${GdalEngine.initialize()}"
                                         selectedPanel = "Layers"
@@ -297,6 +299,7 @@ private fun GeoLiteScreen() {
                                 attributeRows = parsedRows
                                 selectedAttributeIndex = 0
                                 lastVectorPath = gdbPath
+                                lastVectorLayerIndex = layerInfo.index
                                 selectedFile = File(gdbPath).name
                                 status = "Loaded ${result.layerName}: ${result.featureCount} features"
                                 selectedPanel = "Layers"
@@ -425,7 +428,7 @@ private fun GeoLiteScreen() {
                                 if (path == null || fid == null) status = "Select a feature on the map or in the attribute table first."
                                 else {
                                     try {
-                                        GdalEngine.deleteFeature(path, 0, fid)
+                                        GdalEngine.deleteFeature(path, lastVectorLayerIndex, fid)
                                         status = "Feature $fid deleted from the editable dataset. Reopen the layer to refresh."
                                     } catch (e: Exception) { status = "Delete failed: ${e.localizedMessage}" }
                                 }
@@ -660,6 +663,7 @@ private fun GeoLiteScreen() {
                         FilterChip(selected = mapTool == "Identify", onClick = { mapTool = "Identify"; status = "Tap a feature to identify it." }, label = { Text("Identify") })
                         FilterChip(selected = mapTool == "Select", onClick = { mapTool = "Select"; status = "Tap a feature to select it." }, label = { Text("Select") })
                         FilterChip(selected = mapTool == "Pan", onClick = { mapTool = "Pan"; status = "Pan/zoom mode." }, label = { Text("Pan") })
+                        FilterChip(selected = mapTool == "Add feature", onClick = { mapTool = "Add feature"; status = "Tap the map to create a point in the active Shapefile." }, label = { Text("Edit point") })
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = { showManualPinDialog = true }) { Text("Coordinates") }
@@ -679,6 +683,144 @@ private fun GeoLiteScreen() {
         }
     }
 
+
+    if (showManualPinDialog) {
+        AlertDialog(
+            onDismissRequest = { showManualPinDialog = false },
+            title = { Text("Add placemark by coordinates") },
+            text = {
+                Column {
+                    OutlinedTextField(value = manualLat, onValueChange = { manualLat = it }, label = { Text("Latitude") }, singleLine = true)
+                    OutlinedTextField(value = manualLon, onValueChange = { manualLon = it }, label = { Text("Longitude") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val lat = manualLat.toDoubleOrNull()
+                    val lon = manualLon.toDoubleOrNull()
+                    if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
+                        status = "Enter valid WGS84 latitude and longitude."
+                    } else {
+                        addPin(Pin("Manual placemark ${pins.size + 1}", lat, lon))
+                        map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lon), 15.0))
+                        showManualPinDialog = false
+                    }
+                }) { Text("Add point") }
+            },
+            dismissButton = { TextButton(onClick = { showManualPinDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showStyleDialog) {
+        AlertDialog(
+            onDismissRequest = { showStyleDialog = false },
+            title = { Text("Map element properties") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Vector color (hex)")
+                    OutlinedTextField(value = vectorColor, onValueChange = { vectorColor = it }, singleLine = true)
+                    Text("Line width · ${"%.1f".format(vectorWidth)} px")
+                    Slider(value = vectorWidth, onValueChange = { vectorWidth = it }, valueRange = 0.5f..10f)
+                    Text("Point size · ${"%.1f".format(pointSize)} px")
+                    Slider(value = pointSize, onValueChange = { pointSize = it }, valueRange = 2f..20f)
+                    Text("Polygon opacity · ${"%.0f".format(fillOpacityValue * 100)}%")
+                    Slider(value = fillOpacityValue, onValueChange = { fillOpacityValue = it }, valueRange = 0.05f..1f)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (vectorColor.matches(Regex("#[0-9A-Fa-f]{6}"))) {
+                        applyVectorStyle()
+                        showStyleDialog = false
+                    } else status = "Use a valid six-digit hex color, e.g. #2878D0."
+                }) { Text("Apply") }
+            },
+            dismissButton = { TextButton(onClick = { showStyleDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showCreateLayerDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateLayerDialog = false },
+            title = { Text("Create point feature class") },
+            text = {
+                OutlinedTextField(value = newLayerName, onValueChange = { newLayerName = it },
+                    label = { Text("Feature class name") }, singleLine = true)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clean = newLayerName.replace(Regex("[^A-Za-z0-9_]"), "_").take(10).ifBlank { "points" }
+                    try {
+                        val folder = activity.getExternalFilesDir("GeoLite/Projects") ?: activity.filesDir
+                        folder.mkdirs()
+                        val path = File(folder, "$clean.shp").absolutePath
+                        GdalEngine.createPointShapefile(path, clean)
+                        lastVectorPath = path
+                        lastVectorLayerIndex = 0
+                        selectedFile = File(path).name
+                        status = "Created editable WGS84 point feature class: $path. Use Edit point on the map to digitize."
+                        showCreateLayerDialog = false
+                    } catch (e: Exception) { status = "Create feature class failed: ${e.localizedMessage}" }
+                }) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateLayerDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showFieldDialog) {
+        AlertDialog(
+            onDismissRequest = { showFieldDialog = false },
+            title = { Text("Add attribute field") },
+            text = {
+                Column {
+                    Text("Shapefile field names: max 10 characters.")
+                    OutlinedTextField(value = editFieldName, onValueChange = { editFieldName = it },
+                        label = { Text("Field name") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val path = lastVectorPath
+                    if (path == null) status = "Open or create an editable Shapefile first."
+                    else try {
+                        GdalEngine.addField(path, lastVectorLayerIndex, editFieldName)
+                        status = "Field $editFieldName added. Reopen the layer to refresh the table."
+                        showFieldDialog = false
+                    } catch (e: Exception) { status = "Add field failed: ${e.localizedMessage}" }
+                }) { Text("Add field") }
+            },
+            dismissButton = { TextButton(onClick = { showFieldDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showAttributeEditDialog) {
+        AlertDialog(
+            onDismissRequest = { showAttributeEditDialog = false },
+            title = { Text("Populate selected attribute") },
+            text = {
+                Column {
+                    Text("Feature ID: ${selectedFeatureFid ?: "not selected"}")
+                    OutlinedTextField(value = editFieldName, onValueChange = { editFieldName = it },
+                        label = { Text("Field name") }, singleLine = true)
+                    OutlinedTextField(value = editFieldValue, onValueChange = { editFieldValue = it },
+                        label = { Text("New value") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val path = lastVectorPath
+                    val fid = selectedFeatureFid
+                    if (path == null || fid == null) status = "Select a feature and open an editable Shapefile."
+                    else try {
+                        GdalEngine.updateAttribute(path, lastVectorLayerIndex, fid, editFieldName, editFieldValue)
+                        status = "Updated $editFieldName for feature $fid. Reopen the layer to refresh."
+                        showAttributeEditDialog = false
+                    } catch (e: Exception) { status = "Attribute update failed: ${e.localizedMessage}" }
+                }) { Text("Save attribute") }
+            },
+            dismissButton = { TextButton(onClick = { showAttributeEditDialog = false }) { Text("Cancel") } }
+        )
+    }
 
     if (showGdbLayerDialog) {
         AlertDialog(
