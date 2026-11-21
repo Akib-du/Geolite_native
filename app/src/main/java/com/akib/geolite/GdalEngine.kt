@@ -138,18 +138,27 @@ object GdalEngine {
     }
 
     /** Create an editable point Shapefile feature class in WGS84. */
-    fun createPointShapefile(path: String, layerName: String) {
+    fun createShapefile(path: String, layerName: String, geometryType: String) {
         initialize()
+        val geometry = when (geometryType.lowercase()) {
+            "point" -> ogr.wkbPoint
+            "line" -> ogr.wkbLineString
+            "polygon" -> ogr.wkbPolygon
+            else -> error("Choose Point, Line or Polygon geometry.")
+        }
         val driver = ogr.GetDriverByName("ESRI Shapefile") ?: error("Shapefile driver unavailable.")
         val dataSource = driver.CreateDataSource(path) ?: error("Could not create Shapefile.")
         try {
             val srs = SpatialReference()
             srs.ImportFromEPSG(4326)
-            val layer = dataSource.CreateLayer(layerName, srs, ogr.wkbPoint)
-                ?: error("Could not create point feature class.")
-            srs.delete()
+            try {
+                dataSource.CreateLayer(layerName, srs, geometry)
+                    ?: error("Could not create $geometryType feature class.")
+            } finally { srs.delete() }
         } finally { dataSource.delete() }
     }
+
+    fun createPointShapefile(path: String, layerName: String) = createShapefile(path, layerName, "Point")
 
     fun addField(path: String, layerIndex: Int, fieldName: String) {
         require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,9}"))) { "Shapefile field names must be 1–10 letters/numbers/underscores and start with a letter." }
