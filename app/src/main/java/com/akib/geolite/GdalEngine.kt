@@ -27,17 +27,36 @@ object GdalEngine {
     }
 
     data class VectorResult(val geoJson: String, val featureCount: Long, val layerName: String)
+    data class VectorLayerInfo(val index: Int, val name: String, val featureCount: Long)
     data class RasterInfo(
         val width: Int, val height: Int, val bands: Int,
         val projection: String, val dataType: String, val geoTransform: DoubleArray
     )
 
-    fun openVector(path: String): VectorResult {
+    fun hasOpenFileGdbDriver(): Boolean {
+        initialize()
+        return ogr.GetDriverByName("OpenFileGDB") != null
+    }
+
+    fun listVectorLayers(path: String): List<VectorLayerInfo> {
+        initialize()
+        val dataSource = ogr.Open(path, 0) ?: error("OGR could not open this dataset. OpenFileGDB driver available: ${hasOpenFileGdbDriver()}")
+        try {
+            return (0 until dataSource.GetLayerCount()).map { index ->
+                val layer = dataSource.GetLayer(index) ?: error("Could not read layer $index.")
+                VectorLayerInfo(index, layer.GetName(), layer.GetFeatureCount())
+            }
+        } finally { dataSource.delete() }
+    }
+
+    fun openVector(path: String): VectorResult = openVector(path, 0)
+
+    fun openVector(path: String, layerIndex: Int): VectorResult {
         initialize()
         val dataSource = ogr.Open(path, 0) ?: error("OGR could not open this vector dataset. For Shapefile, choose a ZIP containing .shp, .shx and .dbf.")
         try {
             require(dataSource.GetLayerCount() > 0) { "No vector layers were found." }
-            val layer = dataSource.GetLayer(0) ?: error("Could not read the first vector layer.")
+            require(layerIndex in 0 until dataSource.GetLayerCount()) { "Vector layer index is out of range." }\n            val layer = dataSource.GetLayer(layerIndex) ?: error("Could not read vector layer $layerIndex.")
             val definition = layer.GetLayerDefn()
             val target = SpatialReference()
             target.ImportFromEPSG(4326)
