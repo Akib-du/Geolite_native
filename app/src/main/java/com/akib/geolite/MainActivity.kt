@@ -2,6 +2,7 @@ package com.akib.geolite
 
 import android.Manifest
 import android.os.Bundle
+import android.graphics.PointF
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -30,25 +31,32 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
 import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.PropertyFactory.circleColor
 import org.maplibre.android.style.layers.PropertyFactory.circleRadius
 import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
 import org.maplibre.android.style.layers.PropertyFactory.lineColor
 import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.rasterOpacity
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.ImageSource
 import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipInputStream
 
 private const val DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 private data class Pin(val title: String, val lat: Double, val lon: Double)
+private data class VectorOverlay(val id: String, val name: String, val geoJson: String, val featureCount: Long)
+private data class RasterOverlay(val id: String, val imagePath: String, val west: Double, val north: Double, val east: Double, val south: Double)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,6 +81,28 @@ private fun GeoLiteScreen() {
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
     var vectorLayers by remember { mutableStateOf(listOf<String>()) }
+    var vectorOverlays by remember { mutableStateOf(listOf<VectorOverlay>()) }
+    var rasterOverlays by remember { mutableStateOf(listOf<RasterOverlay>()) }
+    var mapTool by remember { mutableStateOf("Pan") }
+    var showStyleDialog by remember { mutableStateOf(false) }
+    var showManualPinDialog by remember { mutableStateOf(false) }
+    var showCreateLayerDialog by remember { mutableStateOf(false) }
+    var showFieldDialog by remember { mutableStateOf(false) }
+    var showAttributeEditDialog by remember { mutableStateOf(false) }
+    var editText by remember { mutableStateOf("") }
+    var editFieldName by remember { mutableStateOf("") }
+    var editFieldValue by remember { mutableStateOf("") }
+    var manualLat by remember { mutableStateOf("") }
+    var manualLon by remember { mutableStateOf("") }
+    var newLayerName by remember { mutableStateOf("new_points") }
+    var selectedFeatureFid by remember { mutableStateOf<Long?>(null) }
+    var selectedFeatureProperties by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var vectorColor by remember { mutableStateOf("#2878D0") }
+    var vectorWidth by remember { mutableFloatStateOf(2.5f) }
+    var pointSize by remember { mutableFloatStateOf(6f) }
+    var fillOpacityValue by remember { mutableFloatStateOf(0.30f) }
+    var scaleLabel by remember { mutableStateOf("—") }
+    var showScale by remember { mutableStateOf(true) }
     var rasterLayers by remember { mutableStateOf(listOf<String>()) }
     var lastVectorPath by remember { mutableStateOf<String?>(null) }
     var lastRasterPath by remember { mutableStateOf<String?>(null) }
@@ -85,6 +115,50 @@ private fun GeoLiteScreen() {
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
+
+    fun addVectorOverlayToStyle(style: Style, overlay: VectorOverlay) {
+        style.addSource(GeoJsonSource(overlay.id, overlay.geoJson))
+        style.addLayer(FillLayer("${overlay.id}_fill", overlay.id).withProperties(
+            fillColor(vectorColor), fillOpacity(fillOpacityValue)
+        ))
+        style.addLayer(LineLayer("${overlay.id}_line", overlay.id).withProperties(
+            lineColor(vectorColor), lineWidth(vectorWidth)
+        ))
+        style.addLayer(CircleLayer("${overlay.id}_point", overlay.id).withProperties(
+            circleColor(vectorColor), circleRadius(pointSize)
+        ))
+    }
+
+    fun addRasterOverlayToStyle(style: Style, overlay: RasterOverlay) {
+        val quad = LatLngQuad(
+            LatLng(overlay.north, overlay.west), LatLng(overlay.north, overlay.east),
+            LatLng(overlay.south, overlay.east), LatLng(overlay.south, overlay.west)
+        )
+        style.addSource(ImageSource(overlay.id, quad, File(overlay.imagePath).toURI()))
+        style.addLayer(RasterLayer("${overlay.id}_layer", overlay.id).withProperties(rasterOpacity(0.88f)))
+    }
+
+    fun changeBasemap(styleJson: String, name: String) {
+        val activeMap = map ?: return
+        activeMap.setStyle(Style.Builder().fromJson(styleJson)) { style ->
+            vectorOverlays.forEach { overlay -> addVectorOverlayToStyle(style, overlay) }
+            rasterOverlays.forEach { overlay -> addRasterOverlayToStyle(style, overlay) }
+            styleName = name
+            status = "Basemap changed: $name"
+        }
+    }
+
+    fun applyVectorStyle() {
+        map?.getStyle { style ->
+            vectorOverlays.forEach { overlay ->
+                style.removeLayer("${overlay.id}_fill")
+                style.removeLayer("${overlay.id}_line")
+                style.removeLayer("${overlay.id}_point")
+                addVectorOverlayToStyle(style, overlay)
+            }
+            status = "Layer symbology updated"
+        }
+    }
 
     fun addPin(pin: Pin) {
         pins = pins + pin
