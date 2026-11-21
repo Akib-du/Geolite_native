@@ -1092,8 +1092,10 @@ private fun GeoLiteScreen() {
                     try {
                         val folder = activity.getExternalFilesDir("GeoLite/Projects") ?: activity.filesDir
                         folder.mkdirs()
-                        val path = if (newStorageFormat == "FileGDB") File(folder, "$clean.gdb").absolutePath
-                            else File(folder, "$clean.shp").absolutePath
+                        val activeGdb = lastVectorPath?.takeIf { it.endsWith(".gdb", true) }
+                        val path = if (newStorageFormat == "FileGDB") {
+                            activeGdb ?: File(folder, "$clean.gdb").absolutePath
+                        } else File(folder, "$clean.shp").absolutePath
                         val layerIndex = if (newStorageFormat == "FileGDB") {
                             GdalEngine.createFileGdbFeatureClass(path, clean, newGeometryType)
                         } else {
@@ -1106,6 +1108,10 @@ private fun GeoLiteScreen() {
                         lastVectorPath = path
                         lastVectorLayerIndex = layerIndex
                         lastVectorSourceId = sourceId
+                        if (newStorageFormat == "FileGDB") {
+                            pendingGdbPath = path
+                            pendingGdbLayers = GdalEngine.listVectorLayers(path)
+                        }
                         vectorOverlays = vectorOverlays + overlay
                         vectorLayers = vectorLayers + "$clean · 0 features ($newStorageFormat)"
                         attributeRows = emptyList()
