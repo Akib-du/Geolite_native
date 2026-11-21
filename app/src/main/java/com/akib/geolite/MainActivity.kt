@@ -1088,7 +1088,8 @@ private fun GeoLiteScreen() {
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val clean = newLayerName.replace(Regex("[^A-Za-z0-9_]"), "_").take(10).ifBlank { "points" }
+                    val maxNameLength = if (newStorageFormat == "FileGDB") 64 else 10
+                    val clean = newLayerName.replace(Regex("[^A-Za-z0-9_]"), "_").take(maxNameLength).ifBlank { "points" }
                     try {
                         val folder = activity.getExternalFilesDir("GeoLite/Projects") ?: activity.filesDir
                         folder.mkdirs()
