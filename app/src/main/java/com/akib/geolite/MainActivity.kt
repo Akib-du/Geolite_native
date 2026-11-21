@@ -588,36 +588,7 @@ private fun GeoLiteScreen() {
                             })
                         }
                     }
-                    Box {
-                        TextButton(onClick = { styleMenu = true }) { Text("Basemap ▾") }
-                        DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
-                            DropdownMenuItem(text = { Text("OpenStreetMap") }, onClick = {
-                                styleMenu = false; changeBasemap(OSM_STYLE_JSON, "OpenStreetMap")
-                            })
-                            DropdownMenuItem(text = { Text("Satellite imagery · Esri") }, onClick = {
-                                styleMenu = false; changeBasemap(IMAGERY_STYLE_JSON, "Esri World Imagery")
-                            })
-                            DropdownMenuItem(text = { Text("OpenFreeMap · Liberty") }, onClick = {
-                                styleMenu = false
-                                map?.setStyle(DEFAULT_STYLE) { style ->
-                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
-                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
-                                    styleName = "OpenFreeMap · Liberty"; status = "Basemap changed to Liberty"
-                                }
-                            })
-                            DropdownMenuItem(text = { Text("OpenFreeMap · Positron") }, onClick = {
-                                styleMenu = false
-                                map?.setStyle("https://tiles.openfreemap.org/styles/positron") { style ->
-                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
-                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
-                                    styleName = "OpenFreeMap · Positron"; status = "Basemap changed to Positron"
-                                }
-                            })
-                            DropdownMenuItem(text = { Text("No basemap") }, onClick = {
-                                styleMenu = false; changeBasemap(NO_BASEMAP_STYLE_JSON, "No basemap")
-                            })
-                        }
-                    }
+
                 }
             )
         },
@@ -651,6 +622,36 @@ private fun GeoLiteScreen() {
                     Text(driverStatus, style = MaterialTheme.typography.bodySmall)
                 } else if (selectedPanel == "Layers") {
                     Text("MAP LAYERS", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    Box {
+                        TextButton(onClick = { styleMenu = true }) { Text("Basemap ▾") }
+                        DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
+                            DropdownMenuItem(text = { Text("OpenStreetMap") }, onClick = {
+                                styleMenu = false; changeBasemap(OSM_STYLE_JSON, "OpenStreetMap")
+                            })
+                            DropdownMenuItem(text = { Text("Satellite imagery · Esri") }, onClick = {
+                                styleMenu = false; changeBasemap(IMAGERY_STYLE_JSON, "Esri World Imagery")
+                            })
+                            DropdownMenuItem(text = { Text("OpenFreeMap · Liberty") }, onClick = {
+                                styleMenu = false
+                                map?.setStyle(DEFAULT_STYLE) { style ->
+                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
+                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
+                                    styleName = "OpenFreeMap · Liberty"; status = "Basemap changed to Liberty"
+                                }
+                            })
+                            DropdownMenuItem(text = { Text("OpenFreeMap · Positron") }, onClick = {
+                                styleMenu = false
+                                map?.setStyle("https://tiles.openfreemap.org/styles/positron") { style ->
+                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
+                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
+                                    styleName = "OpenFreeMap · Positron"; status = "Basemap changed to Positron"
+                                }
+                            })
+                            DropdownMenuItem(text = { Text("No basemap") }, onClick = {
+                                styleMenu = false; changeBasemap(NO_BASEMAP_STYLE_JSON, "No basemap")
+                            })
+                        }
+                    }
                     Text("☑  $styleName", modifier = Modifier.padding(vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall)
                     Text("VECTOR LAYERS (${vectorLayers.size})", fontWeight = FontWeight.Bold,
