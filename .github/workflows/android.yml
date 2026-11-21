@@ -25,9 +25,7 @@ jobs:
       - name: Download Android GDAL engine (GDAL 3.7.0 / PROJ 9.2.1)
         run: |
           mkdir -p app/libs
-          curl --fail --location --retry 3 \\
-            https://github.com/kikitte/GDAL4Android/releases/download/v3.7.0-iconv/gdal-3.7.0.aar \\
-            --output app/libs/gdal-3.7.0.aar
+          curl --fail --location --retry 3 https://github.com/kikitte/GDAL4Android/releases/download/v3.7.0-iconv/gdal-3.7.0.aar --output app/libs/gdal-3.7.0.aar
           test -s app/libs/gdal-3.7.0.aar
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
