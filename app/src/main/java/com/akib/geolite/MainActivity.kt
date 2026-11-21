@@ -637,9 +637,31 @@ private fun GeoLiteScreen() {
                         if (selectedRow.isEmpty()) Text("No properties for this feature.",
                             style = MaterialTheme.typography.bodySmall)
                         selectedRow.forEach { (field, value) ->
-                            Text(field, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall)
-                            Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(bottom = 5.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(field, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall)
+                                    Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodySmall)
+                                }
+                                TextButton(onClick = {
+                                    editFieldName = field
+                                    editFieldValue = value
+                                    showAttributeEditDialog = true
+                                }) { Text("Edit") }
+                            }
+                            HorizontalDivider()
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = { showFieldDialog = true }) { Text("＋ Field") }
+                            TextButton(onClick = { showAttributeEditDialog = true }) { Text("Edit value") }
+                            TextButton(onClick = {
+                                val path = lastVectorPath
+                                val fid = selectedFeatureFid
+                                if (path == null || fid == null) status = "Select a feature first."
+                                else try {
+                                    GdalEngine.deleteFeature(path, lastVectorLayerIndex, fid)
+                                    status = "Feature $fid deleted. Reopen the layer to refresh."
+                                } catch (e: Exception) { status = "Delete failed: ${e.localizedMessage}" }
+                            }) { Text("Delete feature") }
                         }
                     }
                 }
