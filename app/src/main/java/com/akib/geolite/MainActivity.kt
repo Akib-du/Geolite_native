@@ -541,13 +541,17 @@ private fun GeoLiteScreen() {
 private fun copyDocumentTree(context: android.content.Context, treeUri: android.net.Uri): File {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not access selected folder.")
     require(root.isDirectory) { "Select a FileGDB folder." }
-    val safeName = (root.name ?: "dataset.gdb").replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val safeName = root.name ?: "dataset.gdb"
+    require(safeName.endsWith(".gdb", true)) { "Selected folder name must end with .gdb." }
     val destination = File(context.cacheDir, "geolite_gdb_${System.currentTimeMillis()}_${safeName}")
     require(destination.mkdirs()) { "Could not create a local copy of the FileGDB." }
 
     fun copyFolder(source: DocumentFile, target: File) {
         source.listFiles().forEach { child ->
-            val childName = (child.name ?: "unnamed").replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val childName = child.name ?: error("A FileGDB item has no filename.")
+            require(childName != "." && childName != ".." && !childName.contains("/") && !childName.contains("\\\\")) {
+                "Invalid FileGDB component name: $childName"
+            }
             val output = File(target, childName)
             if (child.isDirectory) {
                 require(output.mkdirs() || output.isDirectory) { "Could not create FileGDB subfolder: $childName" }
