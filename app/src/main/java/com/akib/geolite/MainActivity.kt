@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun GeoLiteScreen() {
     val context = LocalContext.current
+    val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var mapView by remember { mutableStateOf<MapView?>(null) }
@@ -99,7 +100,7 @@ private fun GeoLiteScreen() {
                     if (extension in listOf("tif", "tiff", "img", "vrt")) {
                         val info = GdalEngine.openRaster(copied.absolutePath)
                         val description = GdalEngine.describeRaster(info)
-                        runOnUiThread {
+                        activity.runOnUiThread {
                             lastRasterPath = copied.absolutePath
                             selectedFile = displayName
                             rasterLayers = rasterLayers + "$displayName · $description"
@@ -125,7 +126,7 @@ private fun GeoLiteScreen() {
                         }
                         val sourceId = "gdal_vector_${System.currentTimeMillis()}"
                         val layerLabel = displayName.substringBeforeLast('.', displayName)
-                        runOnUiThread {
+                        activity.runOnUiThread {
                             val activeMap = map
                             if (activeMap == null) {
                                 status = "Map is not ready. Reopen the dataset after the map loads."
@@ -157,7 +158,7 @@ private fun GeoLiteScreen() {
                         }
                     }
                 } catch (e: Exception) {
-                    runOnUiThread {
+                    activity.runOnUiThread {
                         selectedFile = displayName
                         status = "Could not open $displayName: ${e.localizedMessage ?: "Unsupported dataset"}"
                         Toast.makeText(context, status, Toast.LENGTH_LONG).show()
@@ -363,17 +364,17 @@ private fun GeoLiteScreen() {
                         status = "Creating vector buffer…"
                         Thread {
                             try {
-                                val outputDir = getExternalFilesDir("GeoLite/Processing") ?: filesDir
+                                val outputDir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
                                 outputDir.mkdirs()
                                 val output = File(outputDir, "buffer_${System.currentTimeMillis()}.geojson")
                                 GdalEngine.bufferVector(input, output.absolutePath, distance)
-                                runOnUiThread {
+                                activity.runOnUiThread {
                                     selectedFile = output.name
                                     status = "Vector buffer created: ${output.absolutePath}. Open this GeoJSON to add it to the map."
                                     processing = false
                                 }
                             } catch (e: Exception) {
-                                runOnUiThread { status = "Vector buffer failed: ${e.localizedMessage}"; processing = false }
+                                activity.runOnUiThread { status = "Vector buffer failed: ${e.localizedMessage}"; processing = false }
                             }
                         }.start()
                     }
@@ -442,4 +443,13 @@ private fun extractShapefile(zipFile: File): File {
     }
     return outputDir.walkTopDown().firstOrNull { it.isFile && it.extension.equals("shp", true) }
         ?: error("ZIP archive does not contain a Shapefile (.shp).")
+}
+
+private fun android.content.Context.findActivity(): ComponentActivity {
+    var current: android.content.Context = this
+    while (current is android.content.ContextWrapper) {
+        if (current is ComponentActivity) return current
+        current = current.baseContext
+    }
+    error("Activity context is unavailable.")
 }
