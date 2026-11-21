@@ -69,6 +69,8 @@ private fun GeoLiteScreen() {
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
     var vectorLayers by remember { mutableStateOf(listOf<String>()) }
+    var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
+    var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
 
     fun addPin(pin: Pin) {
@@ -95,9 +97,22 @@ private fun GeoLiteScreen() {
                 require(type == "FeatureCollection" || type == "Feature") {
                     "This first vector reader supports GeoJSON Feature and FeatureCollection files."
                 }
-                val featureCount = if (type == "Feature") 1 else
-                    (document.optJSONArray("features")?.length() ?: 0)
+                val featureArray = if (type == "Feature") org.json.JSONArray().put(document)
+                    else document.optJSONArray("features") ?: org.json.JSONArray()
+                val featureCount = featureArray.length()
                 require(featureCount > 0) { "The GeoJSON file contains no features." }
+                val parsedRows = (0 until featureCount).map { index ->
+                    val feature = featureArray.getJSONObject(index)
+                    val properties = feature.optJSONObject("properties") ?: JSONObject()
+                    val row = linkedMapOf<String, String>()
+                    val keys = properties.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = properties.opt(key)
+                        row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
+                    }
+                    row
+                }
                 val sourceId = "geojson_${System.currentTimeMillis()}"
                 val layerLabel = displayName.substringBeforeLast('.', displayName)
                 map?.getStyle { style ->
@@ -113,6 +128,8 @@ private fun GeoLiteScreen() {
                             circleColor("#E46B35"), circleRadius(5.0f)
                         ))
                         vectorLayers = vectorLayers + "$layerLabel · $featureCount features"
+                        attributeRows = parsedRows
+                        selectedAttributeIndex = 0
                         selectedFile = displayName
                         status = "GeoJSON layer added: $layerLabel ($featureCount features)"
                         Toast.makeText(context, "GeoJSON layer added to map", Toast.LENGTH_SHORT).show()
@@ -190,7 +207,7 @@ private fun GeoLiteScreen() {
                 Text("WORKSPACE", style = MaterialTheme.typography.labelSmall, color = Color.DarkGray,
                     fontWeight = FontWeight.Bold)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("Catalog", "Layers").forEach { tab ->
+                    listOf("Catalog", "Layers", "Table").forEach { tab ->
                         FilterChip(selected = selectedPanel == tab, onClick = { selectedPanel = tab },
                             label = { Text(tab) })
                     }
@@ -206,7 +223,7 @@ private fun GeoLiteScreen() {
                     Spacer(Modifier.height(12.dp))
                     Text("Formats planned:", style = MaterialTheme.typography.labelSmall)
                     Text("Shapefile · GeoPackage\nFileGDB · GeoTIFF", style = MaterialTheme.typography.bodySmall)
-                } else {
+                } else if (selectedPanel == "Layers") {
                     Text("MAP LAYERS", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                     Text("☑  $styleName", modifier = Modifier.padding(vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall)
@@ -223,6 +240,34 @@ private fun GeoLiteScreen() {
                         items(pins) { pin ->
                             Text("●  ${pin.title}", style = MaterialTheme.typography.bodySmall)
                             Text("   %.5f, %.5f".format(pin.lat, pin.lon), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                } else {
+                    Text("ATTRIBUTE TABLE", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    Text("${attributeRows.size} features · latest GeoJSON layer", style = MaterialTheme.typography.labelSmall,
+                        color = Color.DarkGray, modifier = Modifier.padding(vertical = 6.dp))
+                    if (attributeRows.isEmpty()) {
+                        Text("Open a GeoJSON Feature or FeatureCollection to inspect its properties.",
+                            style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        LazyColumn {
+                            items(attributeRows.indices.toList()) { index ->
+                                TextButton(onClick = { selectedAttributeIndex = index },
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (selectedAttributeIndex == index) "▶ Feature ${index + 1}" else "Feature ${index + 1}")
+                                }
+                            }
+                        }
+                        HorizontalDivider()
+                        Text("FEATURE ${selectedAttributeIndex + 1}", fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 8.dp))
+                        val selectedRow = attributeRows.getOrNull(selectedAttributeIndex).orEmpty()
+                        if (selectedRow.isEmpty()) Text("No properties for this feature.",
+                            style = MaterialTheme.typography.bodySmall)
+                        selectedRow.forEach { (field, value) ->
+                            Text(field, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelSmall)
+                            Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(bottom = 5.dp))
                         }
                     }
                 }
