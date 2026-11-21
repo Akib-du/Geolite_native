@@ -327,6 +327,10 @@ object GdalEngine {
         val ds = ogr.Open(path, 1) ?: error("Could not open dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val expectedType = if (geometryType.equals("Line", true)) ogr.wkbLineString else ogr.wkbPolygon
+            require(ogr.GT_Flatten(layer.GetGeomType()) == expectedType) {
+                "The active layer is not a $geometryType layer. Create or select a matching feature class first."
+            }
             val feature = org.gdal.ogr.Feature(layer.GetLayerDefn())
             val geometry = when (geometryType.lowercase()) {
                 "line" -> org.gdal.ogr.Geometry(ogr.wkbLineString).also { line ->
@@ -382,7 +386,17 @@ object GdalEngine {
                         if (distance < best) { best = distance; nearest = i }
                     }
                     editable.SetPoint_2D(nearest, longitude, latitude)
-                    require(layer.SetFeature(feature.also { it.SetGeometry(geometry) }) == 0) {
+                    if (type == ogr.wkbPolygon && count > 1) {
+                        val first = editable.GetPoint(0)
+                        val last = editable.GetPoint(count - 1)
+                        if (kotlin.math.abs(first[0] - last[0]) < 1e-12 &&
+                            kotlin.math.abs(first[1] - last[1]) < 1e-12) {
+                            if (nearest == 0) editable.SetPoint_2D(count - 1, longitude, latitude)
+                            if (nearest == count - 1) editable.SetPoint_2D(0, longitude, latitude)
+                        }
+                    }
+                    feature.SetGeometry(geometry)
+                    require(layer.SetFeature(feature) == 0) {
                         "Could not save vertex edit."
                     }
                     return nearest
