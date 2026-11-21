@@ -1015,6 +1015,32 @@ private fun GeoLiteScreen() {
     }
 }
 
+private fun copyDirectoryTree(context: android.content.Context, treeUri: android.net.Uri): File {
+    val root = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not access selected folder.")
+    require(root.isDirectory) { "Select a folder containing Shapefile components." }
+    val destination = File(context.cacheDir, "geolite_shp_${System.currentTimeMillis()}")
+    require(destination.mkdirs()) { "Could not create local Shapefile workspace." }
+    fun copy(source: DocumentFile, target: File) {
+        source.listFiles().forEach { child ->
+            val name = child.name ?: error("A selected item has no name.")
+            require(name != "." && name != ".." && !name.contains("/") && !name.contains('\\')) {
+                "Invalid file or folder name: $name"
+            }
+            val out = File(target, name)
+            if (child.isDirectory) {
+                require(out.mkdirs() || out.isDirectory) { "Could not create folder $name" }
+                copy(child, out)
+            } else if (child.isFile) {
+                context.contentResolver.openInputStream(child.uri)?.use { input ->
+                    out.outputStream().use { output -> input.copyTo(output) }
+                } ?: error("Could not read $name")
+            }
+        }
+    }
+    copy(root, destination)
+    return destination
+}
+
 private fun copyDocumentTree(context: android.content.Context, treeUri: android.net.Uri): File {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not access selected folder.")
     require(root.isDirectory) { "Select a FileGDB folder." }
