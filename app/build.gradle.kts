@@ -12,7 +12,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -32,6 +32,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("org.maplibre.gl:android-sdk:13.7.1")
+    // GDAL 3.7.0 Android AAR is downloaded by the CI workflow into app/libs.
+    implementation(files("libs/gdal-3.7.0.aar"))
     implementation("com.google.android.gms:play-services-location:21.3.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
