@@ -234,7 +234,6 @@ private fun GeoLiteScreen() {
                                         val overlay = VectorOverlay(sourceId, layerLabel, result.geoJson, result.featureCount)
                                         addVectorOverlayToStyle(style, overlay)
                                         vectorLayers = vectorLayers + "$layerLabel · ${result.featureCount} features"
-                                        val overlay = VectorOverlay(sourceId, layerLabel, result.geoJson, result.featureCount)
                                         vectorOverlays = vectorOverlays + overlay
                                         attributeRows = parsedRows
                                         selectedAttributeIndex = 0
