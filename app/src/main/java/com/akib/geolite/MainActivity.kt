@@ -77,6 +77,8 @@ private fun GeoLiteScreen() {
     var selectedPanel by remember { mutableStateOf("Catalog") }
     var styleName by remember { mutableStateOf("OpenFreeMap · Liberty") }
     var styleMenu by remember { mutableStateOf(false) }
+    var toolsMenu by remember { mutableStateOf(false) }
+    var editMenu by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready · Long-press the map to add a placemark") }
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
@@ -381,6 +383,54 @@ private fun GeoLiteScreen() {
                 actions = {
                     TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("＋ Open") }
                     TextButton(onClick = { fileGdbPicker.launch(null) }) { Text("Open .gdb") }
+                    Box {
+                        TextButton(onClick = { toolsMenu = true }) { Text("Tools ▾") }
+                        DropdownMenu(expanded = toolsMenu, onDismissRequest = { toolsMenu = false }) {
+                            DropdownMenuItem(text = { Text("Reproject raster") }, onClick = {
+                                toolsMenu = false
+                                val input = lastRasterPath
+                                if (input == null) status = "Open a TIFF raster first."
+                                else {
+                                    val output = File(activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir,
+                                        "reprojected_${System.currentTimeMillis()}.tif")
+                                    output.parentFile?.mkdirs()
+                                    try {
+                                        GdalEngine.reprojectRaster(input, output.absolutePath, "EPSG:4326")
+                                        status = "Reprojected raster saved: ${output.absolutePath}"
+                                    } catch (e: Exception) { status = "Reprojection failed: ${e.localizedMessage}" }
+                                }
+                            })
+                            DropdownMenuItem(text = { Text("Vector buffer") }, onClick = {
+                                toolsMenu = false; showBufferDialog = true
+                            })
+                        }
+                    }
+                    Box {
+                        TextButton(onClick = { editMenu = true }) { Text("Edit ▾") }
+                        DropdownMenu(expanded = editMenu, onDismissRequest = { editMenu = false }) {
+                            DropdownMenuItem(text = { Text("Create point feature class") }, onClick = {
+                                editMenu = false; showCreateLayerDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Add field") }, onClick = {
+                                editMenu = false; showFieldDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Edit selected attribute") }, onClick = {
+                                editMenu = false; showAttributeEditDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Delete selected feature") }, onClick = {
+                                editMenu = false
+                                val path = lastVectorPath
+                                val fid = selectedFeatureFid
+                                if (path == null || fid == null) status = "Select a feature on the map or in the attribute table first."
+                                else {
+                                    try {
+                                        GdalEngine.deleteFeature(path, 0, fid)
+                                        status = "Feature $fid deleted from the editable dataset. Reopen the layer to refresh."
+                                    } catch (e: Exception) { status = "Delete failed: ${e.localizedMessage}" }
+                                }
+                            })
+                        }
+                    }
                     Box {
                         TextButton(onClick = { styleMenu = true }) { Text("Basemap ▾") }
                         DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
