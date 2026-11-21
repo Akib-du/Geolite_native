@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -581,13 +582,98 @@ private fun GeoLiteScreen() {
                                         addPin(Pin("Placemark ${currentPinCount.value + 1}", point.latitude, point.longitude))
                                         true
                                     }
-                                    status = "Map ready · Long-press to add a placemark"
+                                    nativeMap.addOnMapClickListener { point ->
+                                        when (mapTool) {
+                                            "Placemark" -> {
+                                                addPin(Pin("Placemark ${currentPinCount.value + 1}", point.latitude, point.longitude))
+                                                mapTool = "Pan"
+                                                true
+                                            }
+                                            "Identify", "Select" -> {
+                                                val screenPoint = nativeMap.projection.toScreenLocation(point)
+                                                val queryLayers = vectorOverlays.flatMap {
+                                                    listOf("${it.id}_fill", "${it.id}_line", "${it.id}_point")
+                                                }.toTypedArray()
+                                                val found = nativeMap.queryRenderedFeatures(screenPoint, queryLayers).firstOrNull()
+                                                if (found != null) {
+                                                    val featureJson = JSONObject(found.toJson())
+                                                    val props = featureJson.optJSONObject("properties") ?: JSONObject()
+                                                    val values = linkedMapOf<String, String>()
+                                                    val keys = props.keys()
+                                                    while (keys.hasNext()) {
+                                                        val key = keys.next()
+                                                        values[key] = props.optString(key, "")
+                                                    }
+                                                    selectedFeatureFid = props.optString("__fid").toLongOrNull()
+                                                    selectedFeatureProperties = values
+                                                    attributeRows = listOf(values)
+                                                    selectedAttributeIndex = 0
+                                                    selectedPanel = "Table"
+                                                    status = "${mapTool}: feature ${selectedFeatureFid ?: "selected"} · ${values.size} attributes"
+                                                    if (mapTool == "Select") {
+                                                        nativeMap.getStyle { style ->
+                                                            style.removeLayer("selection_fill")
+                                                            style.removeLayer("selection_line")
+                                                            style.removeLayer("selection_point")
+                                                            style.removeSource("selection_source")
+                                                            val fc = JSONObject().put("type", "FeatureCollection")
+                                                                .put("features", org.json.JSONArray().put(featureJson)).toString()
+                                                            style.addSource(GeoJsonSource("selection_source", fc))
+                                                            style.addLayer(FillLayer("selection_fill", "selection_source").withProperties(
+                                                                fillColor("#FF3B30"), fillOpacity(0.55f)))
+                                                            style.addLayer(LineLayer("selection_line", "selection_source").withProperties(
+                                                                lineColor("#FF3B30"), lineWidth(4.0f)))
+                                                            style.addLayer(CircleLayer("selection_point", "selection_source").withProperties(
+                                                                circleColor("#FF3B30"), circleRadius(9.0f)))
+                                                        }
+                                                    }
+                                                } else status = "No vector feature found at this location."
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    }
+                                    nativeMap.addOnCameraIdleListener {
+                                        val center = nativeMap.cameraPosition.target
+                                        val meters = nativeMap.projection.getMetersPerPixelAtLatitude(center.latitude) * 100.0
+                                        scaleLabel = if (meters >= 1000) "${"%.2f".format(meters / 1000)} km / 100 px"
+                                            else "${"%.0f".format(meters)} m / 100 px"
+                                    }
+                                    status = "Map ready · Tap Add placemark then tap the map, or long-press"
                                 }
                             }
                         }
                     })
                 } else {
                     AndroidView(modifier = Modifier.fillMaxSize(), factory = { view })
+                }
+                Column(
+                    modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
+                        .background(Color.White.copy(alpha = 0.94f), MaterialTheme.shapes.medium).padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { mapTool = "Placemark"; status = "Tap the map to place a point." }) { Text("＋ Point") }
+                        TextButton(onClick = { locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) }) { Text("◎ GPS") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilterChip(selected = mapTool == "Identify", onClick = { mapTool = "Identify"; status = "Tap a feature to identify it." }, label = { Text("Identify") })
+                        FilterChip(selected = mapTool == "Select", onClick = { mapTool = "Select"; status = "Tap a feature to select it." }, label = { Text("Select") })
+                        FilterChip(selected = mapTool == "Pan", onClick = { mapTool = "Pan"; status = "Pan/zoom mode." }, label = { Text("Pan") })
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { showManualPinDialog = true }) { Text("Coordinates") }
+                        TextButton(onClick = { showStyleDialog = true }) { Text("Layer style") }
+                    }
+                }
+                if (showScale) {
+                    Surface(modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp), color = Color.White.copy(alpha = 0.92f),
+                        shape = MaterialTheme.shapes.small, shadowElevation = 2.dp) {
+                        Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                            Text(scaleLabel, style = MaterialTheme.typography.labelSmall)
+                            Box(Modifier.width(100.dp).height(3.dp).background(Color.Black))
+                        }
+                    }
                 }
             }
         }
