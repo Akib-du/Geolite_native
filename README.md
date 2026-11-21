@@ -5,7 +5,7 @@ Native Android GIS application built with Kotlin, Jetpack Compose, MapLibre Nati
 ## Data formats and map display
 
 - **Shapefile:** open a folder containing the complete `.shp/.shx/.dbf` set, or open a ZIP containing the set. Folder import preserves companion files.
-- **File Geodatabase:** select the `.gdb` folder. The app checks the packaged `OpenFileGDB` driver, lists feature classes, and lets the user load each class. GDAL 3.7 OpenFileGDB access is read-only in this app.
+- **File Geodatabase:** select the `.gdb` folder. The app checks the packaged `OpenFileGDB` driver, lists feature classes, and lets the user load each class. Imported geodatabases are copied into persistent app workspace storage so edits do not change the original source folder until the user exports the edited `.gdb` copy through the Android folder picker.
 - **GPX:** reads waypoint, route, track and related layers when the packaged GDAL GPX driver is available. The layer chooser lists the available GPX layers.
 - **GeoTIFF:** opens raster metadata and renders a georeferenced map preview. GDAL warps the preview to WGS84 and scales its width to 2048 pixels for mobile display. Original raster data is retained for reprojection.
 - **Runtime driver status:** the Catalog pane reports whether the packaged GDAL runtime actually exposes SHP, FileGDB, GPX and GTiff drivers.
@@ -32,7 +32,7 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 - Add attribute fields (String, Integer, Real or Date), edit field values for a selected feature, and delete selected features.
 - Attribute table supports selecting a feature and editing individual field values.
 
-**Editing scope:** write operations currently target Shapefiles. FileGDB and GPX are treated as read-only; the current FileGDB driver/build and workflow do not provide a complete editable FileGDB geodatabase experience. Map-click digitizing currently creates Point features only; line and polygon feature classes can be created but their drawing/editing tools are not yet implemented. The attribute table is currently a mobile inspection/editor for the selected layer, not a full desktop spreadsheet replacement.
+**Editing scope:** write operations target Shapefiles and FileGDB layers through OGR update mode. The Edit menu can create Point/Line/Polygon Shapefile or FileGDB feature classes, add fields, update attribute values, delete features, and move Point geometries. Map-click digitizing currently creates Point features only; line and polygon feature classes can be created but their drawing/editing tools are not yet implemented. Imported FileGDBs are working copies; use Export edited FileGDB copy to save the edited geodatabase into a user-selected folder. GPX remains read-only. The attribute table is a mobile inspection/editor for the selected layer, not a full desktop spreadsheet replacement.
 
 ## Important limitations / testing status
 
