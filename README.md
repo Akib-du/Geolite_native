@@ -26,6 +26,9 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 ## Tools and editing
 
 - Raster reprojection tool with a user-entered target CRS (for example `EPSG:32646`); output is GeoTIFF in app-specific GeoLite/Processing storage.
+- Terrain derivatives from elevation rasters: Slope, Aspect and Hillshade using GDAL DEMProcessing.
+- Clip a raster by a user-entered bounding box in the source raster CRS.
+- Resample raster pixel size using Nearest, Bilinear, Cubic or Average resampling.
 - Vector reprojection tool for the active layer; output is a new Shapefile in the selected target EPSG CRS.
 - Initial vector buffer operation.
 - Create WGS84 Shapefile feature classes with Point, Line or Polygon geometry.
@@ -41,9 +44,10 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 
 - Large vector layers are converted to in-memory GeoJSON for display and can consume substantial memory. Streaming, paging and spatial filtering are future work.
 - Raster preview is a single georeferenced image overlay, not a tiled raster renderer; very large or rotated/complex rasters may need preprocessing.
-- Raster processing currently includes reprojection; raster calculator, clip, resampling controls, multi-band renderer and raster symbology are pending.
+- Raster processing currently includes reprojection, Slope, Aspect, Hillshade, extent-based clipping and pixel-size resampling. Raster Calculator, mask-based clipping, multi-band renderer and advanced raster symbology are pending.
 - Vector processing currently includes buffer; clip, dissolve, overlay, spatial join and topology tools are pending.
 - Vector reprojection output currently uses Shapefile format; writing the reprojected output directly back into an existing FileGDB is pending.
+- A print-layout designer/PDF map export and true tiled raster rendering are not yet implemented; the current raster preview remains a single georeferenced image overlay.
 - Physical-device testing and validation against sample SHP, FileGDB, GPX and TIFF datasets are required before describing the app as production-ready.
 
 ## Build
