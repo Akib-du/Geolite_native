@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -168,6 +169,71 @@ private fun GeoLiteScreen() {
         }
     }
 
+    val fileGdbPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri != null) {
+            status = "Copying FileGDB from selected folder…"
+            Thread {
+                try {
+                    val gdbFolder = copyDocumentTree(context, treeUri)
+                    require(gdbFolder.name.endsWith(".gdb", true)) {
+                        "Select the .gdb folder itself, not its parent folder."
+                    }
+                    val layers = GdalEngine.listVectorLayers(gdbFolder.absolutePath)
+                    require(layers.isNotEmpty()) { "The selected FileGDB contains no readable vector feature classes." }
+                    val first = GdalEngine.openVector(gdbFolder.absolutePath, layers.first().index)
+                    val featureArray = JSONObject(first.geoJson).optJSONArray("features") ?: org.json.JSONArray()
+                    val parsedRows = (0 until featureArray.length()).map { index ->
+                        val properties = featureArray.getJSONObject(index).optJSONObject("properties") ?: JSONObject()
+                        val row = linkedMapOf<String, String>()
+                        val keys = properties.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            val value = properties.opt(key)
+                            row[key] = if (value == null || value == JSONObject.NULL) "" else value.toString()
+                        }
+                        row
+                    }
+                    val sourceId = "filegdb_vector_${System.currentTimeMillis()}"
+                    activity.runOnUiThread {
+                        val activeMap = map
+                        if (activeMap == null) {
+                            status = "FileGDB copied and inspected, but map is not ready. Reopen it."
+                        } else {
+                            activeMap.getStyle { style ->
+                                try {
+                                    style.addSource(GeoJsonSource(sourceId, first.geoJson))
+                                    style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
+                                        fillColor("#4F83CC"), fillOpacity(0.30f)
+                                    ))
+                                    style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
+                                        lineColor("#245A9A"), lineWidth(2.0f)
+                                    ))
+                                    style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
+                                        circleColor("#E46B35"), circleRadius(5.0f)
+                                    ))
+                                    vectorLayers = vectorLayers + "${first.layerName} · ${first.featureCount} features (FileGDB)"
+                                    attributeRows = parsedRows
+                                    selectedAttributeIndex = 0
+                                    lastVectorPath = gdbFolder.absolutePath
+                                    selectedFile = gdbFolder.name
+                                    status = "FileGDB opened: ${layers.size} feature class(es). Loaded first: ${first.layerName}. Driver: OpenFileGDB"
+                                    selectedPanel = "Layers"
+                                } catch (e: Exception) {
+                                    status = "FileGDB read succeeded, but map rendering failed: ${e.localizedMessage}"
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    activity.runOnUiThread {
+                        status = "FileGDB open failed: ${e.localizedMessage ?: "OpenFileGDB driver may be missing."}"
+                        Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+        }
+    }
+
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
@@ -199,6 +265,7 @@ private fun GeoLiteScreen() {
                 },
                 actions = {
                     TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("＋ Open") }
+                    TextButton(onClick = { fileGdbPicker.launch(null) }) { Text("Open .gdb") }
                     Box {
                         TextButton(onClick = { styleMenu = true }) { Text("Basemap ▾") }
                         DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
@@ -401,6 +468,32 @@ private fun GeoLiteScreen() {
             onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
         }
     }
+}
+
+private fun copyDocumentTree(context: android.content.Context, treeUri: android.net.Uri): File {
+    val root = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not access selected folder.")
+    require(root.isDirectory) { "Select a FileGDB folder." }
+    val safeName = (root.name ?: "dataset.gdb").replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val destination = File(context.cacheDir, "geolite_gdb_${System.currentTimeMillis()}_${safeName}")
+    require(destination.mkdirs()) { "Could not create a local copy of the FileGDB." }
+
+    fun copyFolder(source: DocumentFile, target: File) {
+        source.listFiles().forEach { child ->
+            val childName = (child.name ?: "unnamed").replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val output = File(target, childName)
+            if (child.isDirectory) {
+                require(output.mkdirs() || output.isDirectory) { "Could not create FileGDB subfolder: $childName" }
+                copyFolder(child, output)
+            } else if (child.isFile) {
+                context.contentResolver.openInputStream(child.uri)?.use { input ->
+                    output.outputStream().use { stream -> input.copyTo(stream) }
+                } ?: error("Could not read FileGDB component: $childName")
+            }
+        }
+    }
+
+    copyFolder(root, destination)
+    return destination
 }
 
 private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String {
