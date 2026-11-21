@@ -98,6 +98,8 @@ private fun GeoLiteScreen() {
     var manualLat by remember { mutableStateOf("") }
     var manualLon by remember { mutableStateOf("") }
     var newLayerName by remember { mutableStateOf("new_points") }
+    var newGeometryType by remember { mutableStateOf("Point") }
+    var geometryMenu by remember { mutableStateOf(false) }
     var selectedFeatureFid by remember { mutableStateOf<Long?>(null) }
     var selectedFeatureProperties by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var vectorColor by remember { mutableStateOf("#2878D0") }
@@ -412,7 +414,7 @@ private fun GeoLiteScreen() {
                     Box {
                         TextButton(onClick = { editMenu = true }) { Text("Edit ▾") }
                         DropdownMenu(expanded = editMenu, onDismissRequest = { editMenu = false }) {
-                            DropdownMenuItem(text = { Text("Create point feature class") }, onClick = {
+                            DropdownMenuItem(text = { Text("Create feature class") }, onClick = {
                                 editMenu = false; showCreateLayerDialog = true
                             })
                             DropdownMenuItem(text = { Text("Add field") }, onClick = {
@@ -767,11 +769,11 @@ private fun GeoLiteScreen() {
                         val folder = activity.getExternalFilesDir("GeoLite/Projects") ?: activity.filesDir
                         folder.mkdirs()
                         val path = File(folder, "$clean.shp").absolutePath
-                        GdalEngine.createPointShapefile(path, clean)
+                        GdalEngine.createShapefile(path, clean, newGeometryType)
                         lastVectorPath = path
                         lastVectorLayerIndex = 0
                         selectedFile = File(path).name
-                        status = "Created editable WGS84 point feature class: $path. Use Edit point on the map to digitize."
+                        status = "Created editable WGS84 $newGeometryType feature class: $path. Point layers support map-click digitizing."
                         showCreateLayerDialog = false
                     } catch (e: Exception) { status = "Create feature class failed: ${e.localizedMessage}" }
                 }) { Text("Create") }
