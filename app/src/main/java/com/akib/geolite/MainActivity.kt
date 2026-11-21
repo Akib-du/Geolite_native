@@ -358,7 +358,7 @@ private fun GeoLiteScreen() {
     fun loadFileGdbLayer(gdbPath: String, layerInfo: GdalEngine.VectorLayerInfo) {
         processing = true
         showGdbLayerDialog = false
-        status = "Loading ${layerInfo.name} from FileGDB…"
+        status = "Loading dataset layer ${layerInfo.name}…"
         Thread {
             try {
                 val result = GdalEngine.openVector(gdbPath, layerInfo.index)
@@ -665,7 +665,7 @@ private fun GeoLiteScreen() {
                         style = MaterialTheme.typography.labelMedium)
                     if (pendingGdbPath != null && pendingGdbLayers.isNotEmpty()) {
                         TextButton(onClick = { showGdbLayerDialog = true }, enabled = !processing) {
-                            Text("＋ Add another FileGDB feature class")
+                            Text("＋ Add another dataset layer")
                         }
                     }
                     vectorLayers.forEach { layer ->
