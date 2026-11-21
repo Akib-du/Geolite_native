@@ -537,7 +537,11 @@ private fun GeoLiteScreen() {
                     } else {
                         LazyColumn {
                             items(attributeRows.indices.toList()) { index ->
-                                TextButton(onClick = { selectedAttributeIndex = index },
+                                TextButton(onClick = {
+                                        selectedAttributeIndex = index
+                                        selectedFeatureFid = attributeRows.getOrNull(index)?.get("__fid")?.toLongOrNull()
+                                        selectedFeatureProperties = attributeRows.getOrNull(index).orEmpty()
+                                    },
                                     modifier = Modifier.fillMaxWidth()) {
                                     Text(if (selectedAttributeIndex == index) "▶ Feature ${index + 1}" else "Feature ${index + 1}")
                                 }
@@ -590,6 +594,15 @@ private fun GeoLiteScreen() {
                                             "Placemark" -> {
                                                 addPin(Pin("Placemark ${currentPinCount.value + 1}", point.latitude, point.longitude))
                                                 mapTool = "Pan"
+                                                true
+                                            }
+                                            "Add feature" -> {
+                                                val path = lastVectorPath
+                                                if (path == null) status = "Create or open an editable point Shapefile first."
+                                                else try {
+                                                    GdalEngine.createPointFeature(path, lastVectorLayerIndex, point.longitude, point.latitude)
+                                                    status = "Point feature created at %.6f, %.6f. Reopen layer to refresh.".format(point.latitude, point.longitude)
+                                                } catch (e: Exception) { status = "Could not add feature: ${e.localizedMessage}" }
                                                 true
                                             }
                                             "Identify", "Select" -> {
