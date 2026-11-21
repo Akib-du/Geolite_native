@@ -244,7 +244,6 @@ object GdalEngine {
     }
 
     fun updateAttribute(path: String, layerIndex: Int, featureId: Long, fieldName: String, value: String) {
-        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -257,7 +256,6 @@ object GdalEngine {
     }
 
     fun deleteFeature(path: String, layerIndex: Int, featureId: Long) {
-        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -287,7 +285,6 @@ object GdalEngine {
     }
 
     fun createPointFeature(path: String, layerIndex: Int, longitude: Double, latitude: Double) {
-        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
