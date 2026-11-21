@@ -32,6 +32,17 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.annotations.MarkerOptions
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.fillColor
+import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.json.JSONObject
 
 private const val DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty"
 private data class Pin(val title: String, val lat: Double, val lon: Double)
@@ -57,6 +68,8 @@ private fun GeoLiteScreen() {
     var status by remember { mutableStateOf("Ready · Long-press the map to add a placemark") }
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
+    var vectorLayers by remember { mutableStateOf(listOf<String>()) }
+    val currentPinCount = rememberUpdatedState(pins.size)
 
     fun addPin(pin: Pin) {
         pins = pins + pin
@@ -67,10 +80,54 @@ private fun GeoLiteScreen() {
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            try { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
-            selectedFile = uri.lastPathSegment ?: "Selected dataset"
-            status = "Selected file · ${uri.lastPathSegment ?: uri}"
-            Toast.makeText(context, "File selected. Native GIS readers are being integrated.", Toast.LENGTH_LONG).show()
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { }
+            val displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Selected dataset"
+            try {
+                val geoJsonText = context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()?.use { it.readText() }
+                    ?: error("Could not read the selected document")
+                val document = JSONObject(geoJsonText)
+                val type = document.optString("type")
+                require(type == "FeatureCollection" || type == "Feature") {
+                    "This first vector reader supports GeoJSON Feature and FeatureCollection files."
+                }
+                val featureCount = if (type == "Feature") 1 else
+                    (document.optJSONArray("features")?.length() ?: 0)
+                require(featureCount > 0) { "The GeoJSON file contains no features." }
+                val sourceId = "geojson_${System.currentTimeMillis()}"
+                val layerLabel = displayName.substringBeforeLast('.', displayName)
+                map?.getStyle { style ->
+                    try {
+                        style.addSource(GeoJsonSource(sourceId, geoJsonText))
+                        style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
+                            fillColor("#4F83CC"), fillOpacity(0.30f)
+                        ))
+                        style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
+                            lineColor("#245A9A"), lineWidth(2.0f)
+                        ))
+                        style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
+                            circleColor("#E46B35"), circleRadius(5.0f)
+                        ))
+                        vectorLayers = vectorLayers + "$layerLabel · $featureCount features"
+                        selectedFile = displayName
+                        status = "GeoJSON layer added: $layerLabel ($featureCount features)"
+                        Toast.makeText(context, "GeoJSON layer added to map", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        status = "Could not render GeoJSON: ${e.localizedMessage}"
+                    }
+                } ?: run {
+                    selectedFile = displayName
+                    status = "Map is not ready. Reopen the GeoJSON file after the map loads."
+                }
+            } catch (e: Exception) {
+                selectedFile = displayName
+                status = "Could not open layer: ${e.localizedMessage ?: "Unsupported file"}"
+                Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -153,6 +210,13 @@ private fun GeoLiteScreen() {
                     Text("MAP LAYERS", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                     Text("☑  $styleName", modifier = Modifier.padding(vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall)
+                    Text("VECTOR LAYERS (${vectorLayers.size})", fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium)
+                    vectorLayers.forEach { layer ->
+                        Text("▰  $layer", style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 3.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text("PLACEMARKS (${pins.size})", fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelMedium)
                     LazyColumn {
@@ -188,7 +252,7 @@ private fun GeoLiteScreen() {
                                     nativeMap.cameraPosition = CameraPosition.Builder()
                                         .target(LatLng(23.8103, 90.4125)).zoom(10.0).build()
                                     nativeMap.addOnMapLongClickListener { point ->
-                                        addPin(Pin("Placemark ${pins.size + 1}", point.latitude, point.longitude))
+                                        addPin(Pin("Placemark ${currentPinCount.value + 1}", point.latitude, point.longitude))
                                         true
                                     }
                                     status = "Map ready · Long-press to add a placemark"
