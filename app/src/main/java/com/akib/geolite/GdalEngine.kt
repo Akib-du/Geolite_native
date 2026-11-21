@@ -315,6 +315,82 @@ object GdalEngine {
         } finally { ds.delete() }
     }
 
+    /** Digitize a line or polygon from WGS84 map-click vertices. */
+    fun createGeometryFeature(path: String, layerIndex: Int, geometryType: String, coordinates: List<Pair<Double, Double>>) {
+        requireEditableVectorPath(path)
+        require(coordinates.size >= if (geometryType.equals("Polygon", true)) 3 else 2) {
+            if (geometryType.equals("Polygon", true)) "A polygon needs at least 3 vertices." else "A line needs at least 2 vertices."
+        }
+        coordinates.forEach { (lon, lat) ->
+            require(lon in -180.0..180.0 && lat in -90.0..90.0) { "Coordinate outside WGS84 range." }
+        }
+        val ds = ogr.Open(path, 1) ?: error("Could not open dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = org.gdal.ogr.Feature(layer.GetLayerDefn())
+            val geometry = when (geometryType.lowercase()) {
+                "line" -> org.gdal.ogr.Geometry(ogr.wkbLineString).also { line ->
+                    coordinates.forEach { (lon, lat) -> line.AddPoint_2D(lon, lat) }
+                }
+                "polygon" -> {
+                    val ring = org.gdal.ogr.Geometry(ogr.wkbLinearRing)
+                    coordinates.forEach { (lon, lat) -> ring.AddPoint_2D(lon, lat) }
+                    val first = coordinates.first()
+                    val last = coordinates.last()
+                    if (first != last) ring.AddPoint_2D(first.first, first.second)
+                    org.gdal.ogr.Geometry(ogr.wkbPolygon).also { polygon ->
+                        try { require(polygon.AddGeometry(ring) == 0) { "Could not build polygon ring." } }
+                        finally { ring.delete() }
+                    }
+                }
+                else -> error("Only Line and Polygon are supported by this digitizing tool.")
+            }
+            try {
+                feature.SetGeometry(geometry)
+                require(layer.CreateFeature(feature) == 0) { "Could not save digitized $geometryType." }
+            } finally { geometry.delete(); feature.delete() }
+        } finally { ds.delete() }
+    }
+
+    /** Move the nearest vertex of a selected line or polygon to the tapped WGS84 coordinate. */
+    fun moveNearestVertex(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double): Int {
+        requireEditableVectorPath(path)
+        require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates outside WGS84 range." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = layer.GetFeature(featureId) ?: error("Feature not found.")
+            try {
+                val sourceGeometry = feature.GetGeometryRef() ?: error("Selected feature has no geometry.")
+                val geometry = sourceGeometry.Clone()
+                try {
+                    val type = org.gdal.ogr.ogr.GT_Flatten(geometry.GetGeometryType())
+                    val editable = when (type) {
+                        ogr.wkbLineString -> geometry
+                        ogr.wkbPolygon -> geometry.GetGeometryRef(0) ?: error("Polygon has no exterior ring.")
+                        else -> error("Vertex editing supports Line and Polygon features only.")
+                    }
+                    val count = editable.GetPointCount()
+                    require(count > 0) { "Selected geometry contains no vertices." }
+                    var nearest = 0
+                    var best = Double.POSITIVE_INFINITY
+                    for (i in 0 until count) {
+                        val vertex = editable.GetPoint(i)
+                        val dx = (vertex[0] - longitude) * kotlin.math.cos(Math.toRadians(latitude))
+                        val dy = vertex[1] - latitude
+                        val distance = dx * dx + dy * dy
+                        if (distance < best) { best = distance; nearest = i }
+                    }
+                    editable.SetPoint_2D(nearest, longitude, latitude)
+                    require(layer.SetFeature(feature.also { it.SetGeometry(geometry) }) == 0) {
+                        "Could not save vertex edit."
+                    }
+                    return nearest
+                } finally { geometry.delete() }
+            } finally { feature.delete() }
+        } finally { ds.delete() }
+    }
+
     fun openRaster(path: String): RasterInfo {
         initialize()
         val dataset = gdal.Open(path, gdalconstConstants.GA_ReadOnly)
