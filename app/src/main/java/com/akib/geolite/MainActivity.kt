@@ -253,6 +253,13 @@ private fun GeoLiteScreen() {
                             modifier = Modifier.padding(vertical = 3.dp))
                     }
                     Spacer(Modifier.height(8.dp))
+                    Text("RASTER LAYERS (${rasterLayers.size})", fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium)
+                    rasterLayers.forEach { layer ->
+                        Text("▧  $layer", style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 3.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text("PLACEMARKS (${pins.size})", fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelMedium)
                     LazyColumn {
@@ -358,15 +365,15 @@ private fun GeoLiteScreen() {
                             try {
                                 val outputDir = getExternalFilesDir("GeoLite/Processing") ?: filesDir
                                 outputDir.mkdirs()
-                                val output = File(outputDir, "buffer_\${System.currentTimeMillis()}.geojson")
+                                val output = File(outputDir, "buffer_${System.currentTimeMillis()}.geojson")
                                 GdalEngine.bufferVector(input, output.absolutePath, distance)
                                 runOnUiThread {
                                     selectedFile = output.name
-                                    status = "Vector buffer created: \${output.absolutePath}. Open this GeoJSON to add it to the map."
+                                    status = "Vector buffer created: ${output.absolutePath}. Open this GeoJSON to add it to the map."
                                     processing = false
                                 }
                             } catch (e: Exception) {
-                                runOnUiThread { status = "Vector buffer failed: \${e.localizedMessage}"; processing = false }
+                                runOnUiThread { status = "Vector buffer failed: ${e.localizedMessage}"; processing = false }
                             }
                         }.start()
                     }
@@ -408,7 +415,7 @@ private fun queryDisplayName(context: android.content.Context, uri: android.net.
 
 private fun materializeDocument(context: android.content.Context, uri: android.net.Uri, name: String): File {
     val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    val target = File(context.cacheDir, "geolite_\${System.currentTimeMillis()}_$safeName")
+    val target = File(context.cacheDir, "geolite_${System.currentTimeMillis()}_$safeName")
     context.contentResolver.openInputStream(uri)?.use { input ->
         target.outputStream().use { output -> input.copyTo(output) }
     } ?: error("Could not read selected file.")
@@ -416,7 +423,7 @@ private fun materializeDocument(context: android.content.Context, uri: android.n
 }
 
 private fun extractShapefile(zipFile: File): File {
-    val outputDir = File(zipFile.parentFile, "unzipped_\${zipFile.nameWithoutExtension}")
+    val outputDir = File(zipFile.parentFile, "unzipped_${zipFile.nameWithoutExtension}")
     outputDir.mkdirs()
     ZipInputStream(zipFile.inputStream().buffered()).use { zip ->
         var entry = zip.nextEntry
