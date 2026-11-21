@@ -194,9 +194,39 @@ object GdalEngine {
 
     fun createPointShapefile(path: String, layerName: String) = createShapefile(path, layerName, "Point")
 
+    /** Create a feature class in a new or existing FileGDB using OpenFileGDB. Returns the layer index. */
+    fun createFileGdbFeatureClass(gdbPath: String, layerName: String, geometryType: String): Int {
+        initialize()
+        require(gdbPath.endsWith(".gdb", true)) { "FileGDB path must end with .gdb." }
+        val geometry = when (geometryType.lowercase()) {
+            "point" -> ogr.wkbPoint
+            "line" -> ogr.wkbLineString
+            "polygon" -> ogr.wkbPolygon
+            else -> error("Choose Point, Line or Polygon geometry.")
+        }
+        val driver = ogr.GetDriverByName("OpenFileGDB")
+            ?: error("OpenFileGDB driver is not available in this GDAL build.")
+        val dataSource = if (File(gdbPath).exists()) {
+            ogr.Open(gdbPath, 1) ?: error("Could not open the FileGDB copy for update.")
+        } else {
+            driver.CreateDataSource(gdbPath) ?: error("Could not create the FileGDB.")
+        }
+        try {
+            val srs = SpatialReference()
+            srs.ImportFromEPSG(4326)
+            try {
+                dataSource.CreateLayer(layerName, srs, geometry)
+                    ?: error("Could not create FileGDB feature class.")
+            } finally { srs.delete() }
+            return dataSource.GetLayerCount() - 1
+        } finally { dataSource.delete() }
+    }
+
     fun addField(path: String, layerIndex: Int, fieldName: String, fieldType: String = "String") {
-        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
-        require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,9}"))) { "Shapefile field names must be 1–10 letters/numbers/underscores and start with a letter." }
+        val maxFieldLength = if (path.endsWith(".shp", true)) 10 else 64
+        require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,${maxFieldLength - 1}}"))) {
+            "Field name must start with a letter and contain only letters, numbers or underscores (max $maxFieldLength characters)."
+        }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing. It may be read-only.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -236,7 +266,6 @@ object GdalEngine {
     }
 
     fun movePointFeature(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double) {
-        require(path.endsWith(".shp", true)) { "Geometry editing is currently supported for Shapefile datasets." }
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
