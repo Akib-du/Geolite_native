@@ -846,7 +846,7 @@ private fun GeoLiteScreen() {
                                                 val queryLayers = vectorOverlays.flatMap {
                                                     listOf("${it.id}_fill", "${it.id}_line", "${it.id}_symbol")
                                                 }.toTypedArray()
-                                                val found = nativeMap.queryRenderedFeatures(screenPoint, *queryLayers).firstOrNull()
+                                                val found = nativeMap.queryRenderedFeatures(screenPoint, queryLayers).firstOrNull()
                                                 if (found != null) {
                                                     val props = found.properties()
                                                     val values = linkedMapOf<String, String>()
