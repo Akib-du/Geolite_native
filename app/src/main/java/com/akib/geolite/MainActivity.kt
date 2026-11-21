@@ -1338,7 +1338,9 @@ private fun createMapMarkerIcon(shape: String, hexColor: String): Bitmap {
 private fun copyDirectoryTree(context: android.content.Context, treeUri: android.net.Uri): File {
     val root = DocumentFile.fromTreeUri(context, treeUri) ?: error("Could not access selected folder.")
     require(root.isDirectory) { "Select a folder containing Shapefile components." }
-    val destination = File(context.cacheDir, "geolite_shp_${System.currentTimeMillis()}")
+    val workspace = context.getExternalFilesDir("GeoLite/Workspace") ?: context.filesDir
+    workspace.mkdirs()
+    val destination = File(workspace, "geolite_shp_${System.currentTimeMillis()}")
     require(destination.mkdirs()) { "Could not create local Shapefile workspace." }
     fun copy(source: DocumentFile, target: File) {
         source.listFiles().forEach { child ->
@@ -1366,7 +1368,9 @@ private fun copyDocumentTree(context: android.content.Context, treeUri: android.
     require(root.isDirectory) { "Select a FileGDB folder." }
     val safeName = root.name ?: "dataset.gdb"
     require(safeName.endsWith(".gdb", true)) { "Selected folder name must end with .gdb." }
-    val destination = File(context.cacheDir, "geolite_gdb_${System.currentTimeMillis()}_${safeName}")
+    val workspace = context.getExternalFilesDir("GeoLite/Workspace") ?: context.filesDir
+    workspace.mkdirs()
+    val destination = File(workspace, "geolite_gdb_${System.currentTimeMillis()}_${safeName}")
     require(destination.mkdirs()) { "Could not create a local copy of the FileGDB." }
 
     fun copyFolder(source: DocumentFile, target: File) {
@@ -1404,7 +1408,9 @@ private fun queryDisplayName(context: android.content.Context, uri: android.net.
 
 private fun materializeDocument(context: android.content.Context, uri: android.net.Uri, name: String): File {
     val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-    val target = File(context.cacheDir, "geolite_${System.currentTimeMillis()}_$safeName")
+    val workspace = context.getExternalFilesDir("GeoLite/Workspace/Imports") ?: context.filesDir
+    workspace.mkdirs()
+    val target = File(workspace, "geolite_${System.currentTimeMillis()}_$safeName")
     context.contentResolver.openInputStream(uri)?.use { input ->
         target.outputStream().use { output -> input.copyTo(output) }
     } ?: error("Could not read selected file.")
