@@ -116,26 +116,55 @@ object GdalEngine {
         initialize()
         val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly)
             ?: error("GDAL could not open the raster.")
+        val warpedPath = outputPath.removeSuffix(".png") + "_wgs84.tif"
         try {
-            val options = java.util.Vector<String>().apply {
-                addAll(listOf("-t_srs", "EPSG:4326", "-of", "PNG", "-ts", "2048", "0", "-dstalpha"))
-            }
-            val warpOptions = org.gdal.gdal.WarpOptions(options)
-            val output = gdal.Warp(outputPath, arrayOf(source), warpOptions)
-                ?: error("Could not create a map preview for this raster.")
+            val warpOptions = org.gdal.gdal.WarpOptions(java.util.Vector<String>().apply {
+                addAll(listOf("-t_srs", "EPSG:4326", "-of", "GTiff", "-ts", "2048", "0"))
+            })
+            val warped = gdal.Warp(warpedPath, arrayOf(source), warpOptions)
+                ?: error("Could not reproject the raster preview to WGS84.")
             try {
-                val gt = output.GetGeoTransform()
+                val gt = warped.GetGeoTransform()
                 val west = gt[0]
                 val north = gt[3]
-                val east = west + output.GetRasterXSize() * gt[1]
-                val south = north + output.GetRasterYSize() * gt[5]
+                val east = west + warped.GetRasterXSize() * gt[1]
+                val south = north + warped.GetRasterYSize() * gt[5]
                 require(listOf(west, north, east, south).all { it.isFinite() } && east > west && north > south) {
                     "Raster has invalid or unsupported geographic bounds."
                 }
-                return RasterImageInfo(outputPath, west, north, east, south)
+
+                val bandCount = minOf(warped.GetRasterCount(), 3)
+                require(bandCount > 0) { "Raster has no displayable bands." }
+                val translateArgs = java.util.Vector<String>().apply {
+                    addAll(listOf("-of", "PNG", "-ot", "Byte"))
+                    for (bandIndex in 1..bandCount) {
+                        val band = warped.GetRasterBand(bandIndex)
+                            ?: error("Could not read raster band $bandIndex.")
+                        val stats = band.GetStatistics(0, 1)
+                            ?: error("Could not calculate display statistics for raster band $bandIndex.")
+                        var min = stats[0]
+                        var max = stats[1]
+                        if (!min.isFinite() || !max.isFinite() || max <= min) {
+                            min = 0.0
+                            max = 255.0
+                        }
+                        addAll(listOf("-b", bandIndex.toString(), "-scale_$bandIndex",
+                            min.toString(), max.toString(), "0", "255"))
+                    }
+                }
+                val translateOptions = org.gdal.gdal.TranslateOptions(translateArgs)
+                val png = gdal.Translate(outputPath, warped, translateOptions)
+                    ?: error("Could not convert the raster to a PNG map preview.")
+                try {
+                    return RasterImageInfo(outputPath, west, north, east, south)
+                } finally {
+                    png.delete()
+                    translateOptions.delete()
+                }
             } finally {
-                output.delete()
+                warped.delete()
                 warpOptions.delete()
+                File(warpedPath).delete()
             }
         } finally {
             source.delete()
