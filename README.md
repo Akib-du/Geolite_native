@@ -30,10 +30,12 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 - Initial vector buffer operation.
 - Create WGS84 Shapefile feature classes with Point, Line or Polygon geometry.
 - Point digitizing into the active point Shapefile or FileGDB feature class by tapping the map in Edit point mode.
+- Line and polygon digitizing by tapping map vertices, with undo, finish and cancel controls.
+- Move the nearest line/polygon vertex, insert a vertex at the nearest segment, and delete the nearest vertex while preserving polygon ring closure and minimum geometry vertex counts.
 - Add attribute fields (String, Integer, Real or Date), edit field values for a selected feature, and delete selected features.
 - Attribute table supports selecting a feature and editing individual field values.
 
-**Editing scope:** write operations target Shapefiles and FileGDB layers through OGR update mode. The Edit menu can create Point/Line/Polygon Shapefile or FileGDB feature classes, add fields, update attribute values, delete features, and move Point geometries. Map-click digitizing currently creates Point features only; line and polygon feature classes can be created but their drawing/editing tools are not yet implemented. Imported FileGDBs are working copies; use Export edited FileGDB copy to save the edited geodatabase into a user-selected folder. GPX remains read-only. The attribute table is a mobile inspection/editor for the selected layer, not a full desktop spreadsheet replacement.
+**Editing scope:** write operations target Shapefiles and FileGDB layers through OGR update mode. The Edit menu can create Point/Line/Polygon Shapefile or FileGDB feature classes, add fields, update attribute values, delete features, and move Point geometries. Map-click digitizing supports Point, Line and Polygon feature creation. Line/polygon vertex editing supports nearest-vertex move, nearest-segment insertion and nearest-vertex deletion; continuous drag editing, hole-ring editing and topology validation are not yet implemented. Imported FileGDBs are working copies; use Export edited FileGDB copy to save the edited geodatabase into a user-selected folder. GPX remains read-only. The attribute table is a mobile inspection/editor for the selected layer, not a full desktop spreadsheet replacement.
 
 ## Important limitations / testing status
 
