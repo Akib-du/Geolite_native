@@ -542,7 +542,8 @@ private fun GeoLiteScreen() {
                                 else {
                                     try {
                                         GdalEngine.deleteFeature(path, lastVectorLayerIndex, fid)
-                                        status = "Feature $fid deleted from the editable dataset. Reopen the layer to refresh."
+                                        refreshActiveVector()
+                                        status = "Feature $fid deleted."
                                     } catch (e: Exception) { status = "Delete failed: ${e.localizedMessage}" }
                                 }
                             })
@@ -736,7 +737,8 @@ private fun GeoLiteScreen() {
                                                 if (path == null) status = "Create or open an editable point Shapefile first."
                                                 else try {
                                                     GdalEngine.createPointFeature(path, lastVectorLayerIndex, point.longitude, point.latitude)
-                                                    status = "Point feature created at %.6f, %.6f. Reopen layer to refresh.".format(point.latitude, point.longitude)
+                                                    refreshActiveVector()
+                                                    status = "Point feature created at %.6f, %.6f.".format(point.latitude, point.longitude)
                                                 } catch (e: Exception) { status = "Could not add feature: ${e.localizedMessage}" }
                                                 true
                                             }
@@ -977,7 +979,8 @@ private fun GeoLiteScreen() {
                     if (path == null) status = "Open or create an editable Shapefile first."
                     else try {
                         GdalEngine.addField(path, lastVectorLayerIndex, editFieldName)
-                        status = "Field $editFieldName added. Reopen the layer to refresh the table."
+                        refreshActiveVector()
+                        status = "Field $editFieldName added."
                         showFieldDialog = false
                     } catch (e: Exception) { status = "Add field failed: ${e.localizedMessage}" }
                 }) { Text("Add field") }
@@ -1006,7 +1009,8 @@ private fun GeoLiteScreen() {
                     if (path == null || fid == null) status = "Select a feature and open an editable Shapefile."
                     else try {
                         GdalEngine.updateAttribute(path, lastVectorLayerIndex, fid, editFieldName, editFieldValue)
-                        status = "Updated $editFieldName for feature $fid. Reopen the layer to refresh."
+                        refreshActiveVector()
+                        status = "Updated $editFieldName for feature $fid."
                         showAttributeEditDialog = false
                     } catch (e: Exception) { status = "Attribute update failed: ${e.localizedMessage}" }
                 }) { Text("Save attribute") }
