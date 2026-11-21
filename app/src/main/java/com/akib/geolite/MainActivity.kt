@@ -106,6 +106,7 @@ private fun GeoLiteScreen() {
     var showManualPinDialog by remember { mutableStateOf(false) }
     var showCreateLayerDialog by remember { mutableStateOf(false) }
     var showReprojectDialog by remember { mutableStateOf(false) }
+    var showVectorReprojectDialog by remember { mutableStateOf(false) }
     var targetCrs by remember { mutableStateOf("EPSG:4326") }
     var showFieldDialog by remember { mutableStateOf(false) }
     var showAttributeEditDialog by remember { mutableStateOf(false) }
@@ -584,6 +585,11 @@ private fun GeoLiteScreen() {
                                 if (lastRasterPath == null) status = "Open a TIFF raster first."
                                 else showReprojectDialog = true
                             })
+                            DropdownMenuItem(text = { Text("Reproject vector layer") }, onClick = {
+                                toolsMenu = false
+                                if (lastVectorPath == null) status = "Open a vector layer first."
+                                else showVectorReprojectDialog = true
+                            })
                             DropdownMenuItem(text = { Text("Vector buffer") }, onClick = {
                                 toolsMenu = false; showBufferDialog = true
                             })
@@ -929,6 +935,47 @@ private fun GeoLiteScreen() {
         }
     }
 
+
+    if (showVectorReprojectDialog) {
+        AlertDialog(
+            onDismissRequest = { showVectorReprojectDialog = false },
+            title = { Text("Vector layer reprojection") },
+            text = {
+                Column {
+                    Text("Input: ${lastVectorPath?.let { File(it).name } ?: "No vector"}")
+                    OutlinedTextField(value = targetCrs, onValueChange = { targetCrs = it },
+                        label = { Text("Target CRS (e.g. EPSG:32646)") }, singleLine = true)
+                    Text("Creates a new Shapefile in GeoLite/Processing.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastVectorPath
+                    if (input == null || targetCrs.isBlank()) status = "Select a vector layer and target CRS."
+                    else {
+                        showVectorReprojectDialog = false
+                        processing = true
+                        Thread {
+                            try {
+                                val outputDir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                                outputDir.mkdirs()
+                                val output = File(outputDir, "reprojected_vector_${System.currentTimeMillis()}.shp")
+                                val count = GdalEngine.reprojectVector(input, lastVectorLayerIndex, output.absolutePath, targetCrs.trim())
+                                activity.runOnUiThread {
+                                    processing = false
+                                    status = "Reprojected $count vector feature(s): ${output.absolutePath}"
+                                    loadShapefile(output)
+                                }
+                            } catch (e: Exception) {
+                                activity.runOnUiThread { processing = false; status = "Vector reprojection failed: ${e.localizedMessage}" }
+                            }
+                        }.start()
+                    }
+                }) { Text("Run") }
+            },
+            dismissButton = { TextButton(onClick = { showVectorReprojectDialog = false }) { Text("Cancel") } }
+        )
+    }
 
     if (showReprojectDialog) {
         AlertDialog(
