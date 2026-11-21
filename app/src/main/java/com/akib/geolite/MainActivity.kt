@@ -102,6 +102,8 @@ private fun GeoLiteScreen() {
     var showStyleDialog by remember { mutableStateOf(false) }
     var showManualPinDialog by remember { mutableStateOf(false) }
     var showCreateLayerDialog by remember { mutableStateOf(false) }
+    var showReprojectDialog by remember { mutableStateOf(false) }
+    var targetCrs by remember { mutableStateOf("EPSG:4326") }
     var showFieldDialog by remember { mutableStateOf(false) }
     var showAttributeEditDialog by remember { mutableStateOf(false) }
     var editText by remember { mutableStateOf("") }
@@ -125,6 +127,7 @@ private fun GeoLiteScreen() {
     var rasterLayers by remember { mutableStateOf(listOf<String>()) }
     var lastVectorPath by remember { mutableStateOf<String?>(null) }
     var lastVectorLayerIndex by remember { mutableIntStateOf(0) }
+    var lastVectorSourceId by remember { mutableStateOf<String?>(null) }
     var lastRasterPath by remember { mutableStateOf<String?>(null) }
     var showBufferDialog by remember { mutableStateOf(false) }
     var bufferDistance by remember { mutableStateOf("100") }
@@ -183,6 +186,39 @@ private fun GeoLiteScreen() {
             }
             status = "Layer symbology updated"
         }
+    }
+
+    fun refreshActiveVector() {
+        val path = lastVectorPath ?: return
+        val sourceId = lastVectorSourceId
+        val layerIndex = lastVectorLayerIndex
+        Thread {
+            try {
+                val result = GdalEngine.openVector(path, layerIndex)
+                val features = JSONObject(result.geoJson).optJSONArray("features") ?: org.json.JSONArray()
+                val rows = (0 until features.length()).map { i ->
+                    val props = features.getJSONObject(i).optJSONObject("properties") ?: JSONObject()
+                    val row = linkedMapOf<String, String>()
+                    val keys = props.keys()
+                    while (keys.hasNext()) { val key = keys.next(); row[key] = props.optString(key, "") }
+                    row
+                }
+                activity.runOnUiThread {
+                    attributeRows = rows
+                    selectedAttributeIndex = 0
+                    selectedFeatureFid = null
+                    if (sourceId != null) map?.getStyle { style ->
+                        (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(result.geoJson)
+                    }
+                    vectorOverlays = vectorOverlays.map {
+                        if (it.id == sourceId) it.copy(geoJson = result.geoJson, featureCount = result.featureCount) else it
+                    }
+                    status = "Layer refreshed · ${result.featureCount} features"
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread { status = "Could not refresh layer: ${e.localizedMessage}" }
+            }
+        }.start()
     }
 
     fun addPin(pin: Pin) {
@@ -264,6 +300,7 @@ private fun GeoLiteScreen() {
                                         attributeRows = parsedRows
                                         selectedAttributeIndex = 0
                                         lastVectorPath = vectorFile.absolutePath
+                                        lastVectorSourceId = sourceId
                                         lastVectorLayerIndex = 0
                                         selectedFile = displayName
                                         status = "Vector layer opened: $layerLabel · ${result.featureCount} features · GDAL ${GdalEngine.initialize()}"
@@ -321,6 +358,7 @@ private fun GeoLiteScreen() {
                                 attributeRows = parsedRows
                                 selectedAttributeIndex = 0
                                 lastVectorPath = gdbPath
+                                lastVectorSourceId = sourceId
                                 lastVectorLayerIndex = layerInfo.index
                                 selectedFile = File(gdbPath).name
                                 status = "Loaded ${result.layerName}: ${result.featureCount} features"
@@ -402,6 +440,7 @@ private fun GeoLiteScreen() {
                             attributeRows = rows
                             selectedAttributeIndex = 0
                             lastVectorPath = file.absolutePath
+                            lastVectorSourceId = id
                             lastVectorLayerIndex = 0
                             selectedFile = file.name
                             selectedPanel = "Layers"
@@ -475,17 +514,8 @@ private fun GeoLiteScreen() {
                         DropdownMenu(expanded = toolsMenu, onDismissRequest = { toolsMenu = false }) {
                             DropdownMenuItem(text = { Text("Reproject raster") }, onClick = {
                                 toolsMenu = false
-                                val input = lastRasterPath
-                                if (input == null) status = "Open a TIFF raster first."
-                                else {
-                                    val output = File(activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir,
-                                        "reprojected_${System.currentTimeMillis()}.tif")
-                                    output.parentFile?.mkdirs()
-                                    try {
-                                        GdalEngine.reprojectRaster(input, output.absolutePath, "EPSG:4326")
-                                        status = "Reprojected raster saved: ${output.absolutePath}"
-                                    } catch (e: Exception) { status = "Reprojection failed: ${e.localizedMessage}" }
-                                }
+                                if (lastRasterPath == null) status = "Open a TIFF raster first."
+                                else showReprojectDialog = true
                             })
                             DropdownMenuItem(text = { Text("Vector buffer") }, onClick = {
                                 toolsMenu = false; showBufferDialog = true
@@ -797,6 +827,46 @@ private fun GeoLiteScreen() {
         }
     }
 
+
+    if (showReprojectDialog) {
+        AlertDialog(
+            onDismissRequest = { showReprojectDialog = false },
+            title = { Text("Raster reprojection") },
+            text = {
+                Column {
+                    Text("Input: ${lastRasterPath?.let { File(it).name } ?: "No raster"}")
+                    OutlinedTextField(value = targetCrs, onValueChange = { targetCrs = it },
+                        label = { Text("Target CRS (e.g. EPSG:32646)") }, singleLine = true)
+                    Text("Output will be saved as GeoTIFF in GeoLite/Processing.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastRasterPath
+                    if (input == null || targetCrs.isBlank()) status = "Select an input raster and valid target CRS."
+                    else {
+                        showReprojectDialog = false
+                        processing = true
+                        Thread {
+                            try {
+                                val outputDir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                                outputDir.mkdirs()
+                                val output = File(outputDir, "reprojected_${System.currentTimeMillis()}.tif")
+                                GdalEngine.reprojectRaster(input, output.absolutePath, targetCrs.trim())
+                                activity.runOnUiThread {
+                                    processing = false
+                                    status = "Reprojected raster saved: ${output.absolutePath}"
+                                }
+                            } catch (e: Exception) {
+                                activity.runOnUiThread { processing = false; status = "Reprojection failed: ${e.localizedMessage}" }
+                            }
+                        }.start()
+                    }
+                }) { Text("Run") }
+            },
+            dismissButton = { TextButton(onClick = { showReprojectDialog = false }) { Text("Cancel") } }
+        )
+    }
 
     if (showManualPinDialog) {
         AlertDialog(
