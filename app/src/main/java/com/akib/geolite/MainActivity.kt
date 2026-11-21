@@ -40,6 +40,7 @@ import org.maplibre.android.geometry.LatLngQuad
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.geojson.FeatureCollection
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillLayer
@@ -63,6 +64,9 @@ import java.io.File
 import java.util.zip.ZipInputStream
 
 private const val DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty"
+private const val OSM_STYLE_JSON = """{"version":8,"name":"OpenStreetMap","sources":{"osm":{"type":"raster","tiles":["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],"tileSize":256,"attribution":"© OpenStreetMap contributors"}},"layers":[{"id":"background","type":"background","paint":{"background-color":"#f4f2ed"}},{"id":"osm","type":"raster","source":"osm","paint":{"raster-opacity":1}}]}"""
+private const val IMAGERY_STYLE_JSON = """{"version":8,"name":"Esri World Imagery","sources":{"imagery":{"type":"raster","tiles":["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],"tileSize":256,"attribution":"Tiles © Esri — Sources: Esri, Maxar, Earthstar Geographics, and the GIS User Community"}},"layers":[{"id":"imagery","type":"raster","source":"imagery","paint":{"raster-opacity":1}}]}"""
+private const val NO_BASEMAP_STYLE_JSON = """{"version":8,"name":"No basemap","sources":{},"layers":[{"id":"background","type":"background","paint":{"background-color":"#e8edf0"}}]}"""
 private data class Pin(val title: String, val lat: Double, val lon: Double)
 private data class VectorOverlay(val id: String, val name: String, val geoJson: String, val featureCount: Long)
 private data class RasterOverlay(val id: String, val imagePath: String, val west: Double, val north: Double, val east: Double, val south: Double)
@@ -689,17 +693,14 @@ private fun GeoLiteScreen() {
                                                 val queryLayers = vectorOverlays.flatMap {
                                                     listOf("${it.id}_fill", "${it.id}_line", "${it.id}_symbol")
                                                 }.toTypedArray()
-                                                val found = nativeMap.queryRenderedFeatures(screenPoint, queryLayers).firstOrNull()
+                                                val found = nativeMap.queryRenderedFeatures(screenPoint, *queryLayers).firstOrNull()
                                                 if (found != null) {
-                                                    val featureJson = JSONObject(found.toJson())
-                                                    val props = featureJson.optJSONObject("properties") ?: JSONObject()
+                                                    val props = found.properties()
                                                     val values = linkedMapOf<String, String>()
-                                                    val keys = props.keys()
-                                                    while (keys.hasNext()) {
-                                                        val key = keys.next()
-                                                        values[key] = props.optString(key, "")
+                                                    props?.entrySet()?.forEach { entry ->
+                                                        values[entry.key] = if (entry.value == null || entry.value.isJsonNull) "" else entry.value.asString
                                                     }
-                                                    selectedFeatureFid = props.optString("__fid").toLongOrNull()
+                                                    selectedFeatureFid = props?.get("__fid")?.asString?.toLongOrNull()
                                                     selectedFeatureProperties = values
                                                     attributeRows = listOf(values)
                                                     selectedAttributeIndex = 0
@@ -711,9 +712,8 @@ private fun GeoLiteScreen() {
                                                             style.removeLayer("selection_line")
                                                             style.removeLayer("selection_point")
                                                             style.removeSource("selection_source")
-                                                            val fc = JSONObject().put("type", "FeatureCollection")
-                                                                .put("features", org.json.JSONArray().put(featureJson)).toString()
-                                                            style.addSource(GeoJsonSource("selection_source", fc))
+                                                            style.addSource(GeoJsonSource("selection_source",
+                                                                FeatureCollection.fromFeatures(arrayOf(found))))
                                                             style.addLayer(FillLayer("selection_fill", "selection_source").withProperties(
                                                                 fillColor("#FF3B30"), fillOpacity(0.55f)))
                                                             style.addLayer(LineLayer("selection_line", "selection_source").withProperties(
@@ -729,8 +729,8 @@ private fun GeoLiteScreen() {
                                         }
                                     }
                                     nativeMap.addOnCameraIdleListener {
-                                        val center = nativeMap.cameraPosition.target
-                                        val meters = nativeMap.projection.getMetersPerPixelAtLatitude(center.latitude) * 100.0
+                                        val centerLat = nativeMap.cameraPosition.target?.latitude ?: 0.0
+                                        val meters = nativeMap.projection.getMetersPerPixelAtLatitude(centerLat) * 100.0
                                         scaleLabel = if (meters >= 1000) "${"%.2f".format(meters / 1000)} km / 100 px"
                                             else "${"%.0f".format(meters)} m / 100 px"
                                     }
