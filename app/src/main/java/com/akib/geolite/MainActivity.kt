@@ -954,10 +954,22 @@ private fun GeoLiteScreen() {
     if (showCreateLayerDialog) {
         AlertDialog(
             onDismissRequest = { showCreateLayerDialog = false },
-            title = { Text("Create point feature class") },
+            title = { Text("Create feature class") },
             text = {
-                OutlinedTextField(value = newLayerName, onValueChange = { newLayerName = it },
-                    label = { Text("Feature class name") }, singleLine = true)
+                Column {
+                    OutlinedTextField(value = newLayerName, onValueChange = { newLayerName = it },
+                        label = { Text("Feature class name") }, singleLine = true)
+                    Box {
+                        TextButton(onClick = { geometryMenu = true }) { Text("Geometry: $newGeometryType ▾") }
+                        DropdownMenu(expanded = geometryMenu, onDismissRequest = { geometryMenu = false }) {
+                            listOf("Point", "Line", "Polygon").forEach { type ->
+                                DropdownMenuItem(text = { Text(type) }, onClick = { newGeometryType = type; geometryMenu = false })
+                            }
+                        }
+                    }
+                    Text("Creates a WGS84 Shapefile feature class. Map-click digitizing is available for Point geometry.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -967,10 +979,18 @@ private fun GeoLiteScreen() {
                         folder.mkdirs()
                         val path = File(folder, "$clean.shp").absolutePath
                         GdalEngine.createShapefile(path, clean, newGeometryType)
+                        val result = GdalEngine.openVector(path)
+                        val sourceId = "created_layer_${System.currentTimeMillis()}"
+                        val overlay = VectorOverlay(sourceId, clean, result.geoJson, result.featureCount)
                         lastVectorPath = path
                         lastVectorLayerIndex = 0
+                        lastVectorSourceId = sourceId
+                        vectorOverlays = vectorOverlays + overlay
+                        vectorLayers = vectorLayers + "$clean · 0 features"
+                        attributeRows = emptyList()
+                        map?.getStyle { style -> addVectorOverlayToStyle(style, overlay) }
                         selectedFile = File(path).name
-                        status = "Created editable WGS84 $newGeometryType feature class: $path. Point layers support map-click digitizing."
+                        status = "Created editable WGS84 $newGeometryType feature class: $path"
                         showCreateLayerDialog = false
                     } catch (e: Exception) { status = "Create feature class failed: ${e.localizedMessage}" }
                 }) { Text("Create") }
