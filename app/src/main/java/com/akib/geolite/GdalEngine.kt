@@ -405,6 +405,99 @@ object GdalEngine {
         } finally { ds.delete() }
     }
 
+    /** Insert a vertex at the tapped coordinate on the nearest segment of a line or polygon. */
+    fun insertNearestVertex(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double): Int {
+        requireEditableVectorPath(path)
+        require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates outside WGS84 range." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = layer.GetFeature(featureId) ?: error("Feature not found.")
+            try {
+                val geometry = feature.GetGeometryRef()?.Clone() ?: error("Selected feature has no geometry.")
+                try {
+                    val type = ogr.GT_Flatten(geometry.GetGeometryType())
+                    val editable = when (type) {
+                        ogr.wkbLineString -> geometry
+                        ogr.wkbPolygon -> geometry.GetGeometryRef(0) ?: error("Polygon has no exterior ring.")
+                        else -> error("Vertex insertion supports Line and Polygon features only.")
+                    }
+                    val count = editable.GetPointCount()
+                    require(count >= 2) { "Geometry has too few vertices." }
+                    var insertAfter = 0
+                    var best = Double.POSITIVE_INFINITY
+                    for (i in 0 until count - 1) {
+                        val a = editable.GetPoint(i)
+                        val b = editable.GetPoint(i + 1)
+                        val cosLat = kotlin.math.cos(Math.toRadians(latitude))
+                        val ax = a[0] * cosLat; val ay = a[1]
+                        val bx = b[0] * cosLat; val by = b[1]
+                        val px = longitude * cosLat; val py = latitude
+                        val dx = bx - ax; val dy = by - ay
+                        val length2 = dx * dx + dy * dy
+                        val t = if (length2 == 0.0) 0.0 else (((px - ax) * dx + (py - ay) * dy) / length2).coerceIn(0.0, 1.0)
+                        val ex = px - (ax + t * dx); val ey = py - (ay + t * dy)
+                        val distance = ex * ex + ey * ey
+                        if (distance < best) { best = distance; insertAfter = i }
+                    }
+                    val insertAt = insertAfter + 1
+                    editable.AddPoint_2D(insertAt, longitude, latitude)
+                    feature.SetGeometry(geometry)
+                    require(layer.SetFeature(feature) == 0) { "Could not save inserted vertex." }
+                    return insertAt
+                } finally { geometry.delete() }
+            } finally { feature.delete() }
+        } finally { ds.delete() }
+    }
+
+    /** Delete the nearest vertex while preserving minimum line/polygon vertex counts and polygon closure. */
+    fun deleteNearestVertex(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double): Int {
+        requireEditableVectorPath(path)
+        require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates outside WGS84 range." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = layer.GetFeature(featureId) ?: error("Feature not found.")
+            try {
+                val geometry = feature.GetGeometryRef()?.Clone() ?: error("Selected feature has no geometry.")
+                try {
+                    val type = ogr.GT_Flatten(geometry.GetGeometryType())
+                    val editable = when (type) {
+                        ogr.wkbLineString -> geometry
+                        ogr.wkbPolygon -> geometry.GetGeometryRef(0) ?: error("Polygon has no exterior ring.")
+                        else -> error("Vertex deletion supports Line and Polygon features only.")
+                    }
+                    val count = editable.GetPointCount()
+                    val polygon = type == ogr.wkbPolygon
+                    val minimum = if (polygon) 4 else 2
+                    require(count > minimum) { if (polygon) "A polygon must retain at least 3 distinct vertices." else "A line must retain at least 2 vertices." }
+                    var nearest = 0
+                    var best = Double.POSITIVE_INFINITY
+                    for (i in 0 until count) {
+                        if (polygon && i == count - 1) continue
+                        val p = editable.GetPoint(i)
+                        val dx = (p[0] - longitude) * kotlin.math.cos(Math.toRadians(latitude))
+                        val dy = p[1] - latitude
+                        val distance = dx * dx + dy * dy
+                        if (distance < best) { best = distance; nearest = i }
+                    }
+                    if (polygon) {
+                        // Remove the duplicated closing coordinate as well when deleting the first vertex.
+                        editable.RemovePoint(count - 1)
+                        editable.RemovePoint(nearest)
+                        val first = editable.GetPoint(0)
+                        editable.AddPoint_2D(first[0], first[1])
+                    } else {
+                        editable.RemovePoint(nearest)
+                    }
+                    feature.SetGeometry(geometry)
+                    require(layer.SetFeature(feature) == 0) { "Could not save deleted vertex." }
+                    return nearest
+                } finally { geometry.delete() }
+            } finally { feature.delete() }
+        } finally { ds.delete() }
+    }
+
     fun openRaster(path: String): RasterInfo {
         initialize()
         val dataset = gdal.Open(path, gdalconstConstants.GA_ReadOnly)
