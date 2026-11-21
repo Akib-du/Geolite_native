@@ -28,7 +28,7 @@ The CI workflow builds the GDAL Android AAR from source with GPX, OpenFileGDB an
 - Raster reprojection tool with a user-entered target CRS (for example `EPSG:32646`); output is GeoTIFF in app-specific GeoLite/Processing storage.
 - Initial vector buffer operation.
 - Create WGS84 Shapefile feature classes with Point, Line or Polygon geometry.
-- Point digitizing into the active point Shapefile by tapping the map in Edit point mode.
+- Point digitizing into the active point Shapefile or FileGDB feature class by tapping the map in Edit point mode.
 - Add attribute fields (String, Integer, Real or Date), edit field values for a selected feature, and delete selected features.
 - Attribute table supports selecting a feature and editing individual field values.
 
