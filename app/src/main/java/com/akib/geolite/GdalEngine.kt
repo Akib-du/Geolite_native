@@ -206,6 +206,28 @@ object GdalEngine {
         } finally { ds.delete() }
     }
 
+    fun movePointFeature(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double) {
+        require(path.endsWith(".shp", true)) { "Geometry editing is currently supported for Shapefile datasets." }
+        require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = layer.GetFeature(featureId) ?: error("Feature not found.")
+            val geometry = org.gdal.ogr.Geometry(ogr.wkbPoint)
+            try {
+                require(feature.GetGeometryRef()?.GetGeometryType() == ogr.wkbPoint) {
+                    "Move-point currently works with Point features only."
+                }
+                geometry.AddPoint_2D(longitude, latitude)
+                feature.SetGeometry(geometry)
+                require(layer.SetFeature(feature) == 0) { "Could not save the moved point." }
+            } finally {
+                geometry.delete()
+                feature.delete()
+            }
+        } finally { ds.delete() }
+    }
+
     fun createPointFeature(path: String, layerIndex: Int, longitude: Double, latitude: Double) {
         require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
