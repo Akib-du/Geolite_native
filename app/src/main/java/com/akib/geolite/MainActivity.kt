@@ -384,13 +384,30 @@ private fun GeoLiteScreen() {
                     Box {
                         TextButton(onClick = { styleMenu = true }) { Text("Basemap ▾") }
                         DropdownMenu(expanded = styleMenu, onDismissRequest = { styleMenu = false }) {
+                            DropdownMenuItem(text = { Text("OpenStreetMap") }, onClick = {
+                                styleMenu = false; changeBasemap(OSM_STYLE_JSON, "OpenStreetMap")
+                            })
+                            DropdownMenuItem(text = { Text("Satellite imagery · Esri") }, onClick = {
+                                styleMenu = false; changeBasemap(IMAGERY_STYLE_JSON, "Esri World Imagery")
+                            })
                             DropdownMenuItem(text = { Text("OpenFreeMap · Liberty") }, onClick = {
-                                styleName = "OpenFreeMap · Liberty"; styleMenu = false
-                                map?.setStyle(DEFAULT_STYLE) { status = "Basemap changed to Liberty" }
+                                styleMenu = false
+                                map?.setStyle(DEFAULT_STYLE) { style ->
+                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
+                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
+                                    styleName = "OpenFreeMap · Liberty"; status = "Basemap changed to Liberty"
+                                }
                             })
                             DropdownMenuItem(text = { Text("OpenFreeMap · Positron") }, onClick = {
-                                styleName = "OpenFreeMap · Positron"; styleMenu = false
-                                map?.setStyle("https://tiles.openfreemap.org/styles/positron") { status = "Basemap changed to Positron" }
+                                styleMenu = false
+                                map?.setStyle("https://tiles.openfreemap.org/styles/positron") { style ->
+                                    vectorOverlays.forEach { addVectorOverlayToStyle(style, it) }
+                                    rasterOverlays.forEach { addRasterOverlayToStyle(style, it) }
+                                    styleName = "OpenFreeMap · Positron"; status = "Basemap changed to Positron"
+                                }
+                            })
+                            DropdownMenuItem(text = { Text("No basemap") }, onClick = {
+                                styleMenu = false; changeBasemap(NO_BASEMAP_STYLE_JSON, "No basemap")
                             })
                         }
                     }
