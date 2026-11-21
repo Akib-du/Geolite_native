@@ -351,6 +351,11 @@ private fun GeoLiteScreen() {
                         style = MaterialTheme.typography.bodySmall)
                     Text("VECTOR LAYERS (${vectorLayers.size})", fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.labelMedium)
+                    if (pendingGdbPath != null && pendingGdbLayers.isNotEmpty()) {
+                        TextButton(onClick = { showGdbLayerDialog = true }, enabled = !processing) {
+                            Text("＋ Add another FileGDB feature class")
+                        }
+                    }
                     vectorLayers.forEach { layer ->
                         Text("▰  $layer", style = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.padding(vertical = 3.dp))
