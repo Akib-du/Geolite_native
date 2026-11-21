@@ -851,7 +851,7 @@ private fun GeoLiteScreen() {
                 }, modifier = Modifier.fillMaxWidth()) { Text("◎  My location") }
                 TextButton(onClick = { status = "Long-press anywhere on the map to place a point." },
                     modifier = Modifier.fillMaxWidth()) { Text("⌖  Add placemark") }
-                Text("Raster & vector tools\nComing in native engine phase",
+                Text("Raster tools: Slope · Aspect · Hillshade · Clip · Resample. Open Tools menu to run processing.",
                     style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
             Box(Modifier.weight(1f).fillMaxHeight()) {
