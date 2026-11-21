@@ -94,6 +94,7 @@ private fun GeoLiteScreen() {
     var toolsMenu by remember { mutableStateOf(false) }
     var editMenu by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready · Long-press the map to add a placemark") }
+    var driverStatus by remember { mutableStateOf("Checking native GDAL drivers…") }
     var pins by remember { mutableStateOf(listOf<Pin>()) }
     var selectedFile by remember { mutableStateOf("No dataset loaded") }
     var vectorLayers by remember { mutableStateOf(listOf<String>()) }
@@ -145,6 +146,23 @@ private fun GeoLiteScreen() {
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
+
+    LaunchedEffect(Unit) {
+        Thread {
+            try {
+                val version = GdalEngine.initialize()
+                val shp = GdalEngine.hasVectorDriver("ESRI Shapefile")
+                val gdb = GdalEngine.hasOpenFileGdbDriver()
+                val gpx = GdalEngine.hasVectorDriver("GPX")
+                val tiff = GdalEngine.hasRasterDriver("GTiff")
+                activity.runOnUiThread {
+                    driverStatus = "GDAL $version · SHP ${if (shp) "✓" else "—"} · FileGDB ${if (gdb) "✓" else "—"} · GPX ${if (gpx) "✓" else "—"} · TIFF ${if (tiff) "✓" else "—"}"
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread { driverStatus = "GDAL unavailable: ${e.localizedMessage}" }
+            }
+        }.start()
+    }
 
     fun addVectorOverlayToStyle(style: Style, overlay: VectorOverlay) {
         style.addSource(GeoJsonSource(overlay.id, overlay.geoJson))
@@ -614,8 +632,8 @@ private fun GeoLiteScreen() {
                     TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("＋ Add data") }
                     Text(selectedFile, style = MaterialTheme.typography.bodySmall, color = Color.DarkGray)
                     Spacer(Modifier.height(12.dp))
-                    Text("Formats planned:", style = MaterialTheme.typography.labelSmall)
-                    Text("Shapefile · GeoPackage\nFileGDB · GeoTIFF", style = MaterialTheme.typography.bodySmall)
+                    Text("GDAL FORMAT DRIVERS", style = MaterialTheme.typography.labelSmall)
+                    Text(driverStatus, style = MaterialTheme.typography.bodySmall)
                 } else if (selectedPanel == "Layers") {
                     Text("MAP LAYERS", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                     Text("☑  $styleName", modifier = Modifier.padding(vertical = 8.dp),
