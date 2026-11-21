@@ -129,6 +129,9 @@ private fun GeoLiteScreen() {
     var vectorWidth by remember { mutableFloatStateOf(2.5f) }
     var pointSize by remember { mutableFloatStateOf(6f) }
     var fillOpacityValue by remember { mutableFloatStateOf(0.30f) }
+    var rasterOpacityValue by remember { mutableFloatStateOf(0.88f) }
+    var scalePosition by remember { mutableStateOf("Bottom right") }
+    var scalePositionMenu by remember { mutableStateOf(false) }
     var scaleLabel by remember { mutableStateOf("—") }
     var showScale by remember { mutableStateOf(true) }
     var rasterLayers by remember { mutableStateOf(listOf<String>()) }
@@ -186,7 +189,7 @@ private fun GeoLiteScreen() {
             LatLng(overlay.south, overlay.east), LatLng(overlay.south, overlay.west)
         )
         style.addSource(ImageSource(overlay.id, quad, File(overlay.imagePath).toURI()))
-        style.addLayer(RasterLayer("${overlay.id}_layer", overlay.id).withProperties(rasterOpacity(0.88f)))
+        style.addLayer(RasterLayer("${overlay.id}_layer", overlay.id).withProperties(rasterOpacity(rasterOpacityValue)))
     }
 
     fun changeBasemap(styleJson: String, name: String) {
@@ -209,6 +212,10 @@ private fun GeoLiteScreen() {
             }
             style.removeImage("geolite_icon_${markerIcon.lowercase()}")
             vectorOverlays.forEach { overlay -> addVectorOverlayToStyle(style, overlay) }
+            rasterOverlays.forEach { overlay ->
+                style.removeLayer("${overlay.id}_layer")
+                style.addLayer(RasterLayer("${overlay.id}_layer", overlay.id).withProperties(rasterOpacity(rasterOpacityValue)))
+            }
             status = "Layer symbology updated"
         }
     }
@@ -870,7 +877,13 @@ private fun GeoLiteScreen() {
                     }
                 }
                 if (showScale) {
-                    Surface(modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp), color = Color.White.copy(alpha = 0.92f),
+                    val scaleAlignment = when (scalePosition) {
+                        "Top left" -> Alignment.TopStart
+                        "Top right" -> Alignment.TopEnd
+                        "Bottom left" -> Alignment.BottomStart
+                        else -> Alignment.BottomEnd
+                    }
+                    Surface(modifier = Modifier.align(scaleAlignment).padding(12.dp), color = Color.White.copy(alpha = 0.92f),
                         shape = MaterialTheme.shapes.small, shadowElevation = 2.dp) {
                         Column(Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
                             Text(scaleLabel, style = MaterialTheme.typography.labelSmall)
@@ -981,11 +994,22 @@ private fun GeoLiteScreen() {
                     Text("Point size · ${"%.1f".format(pointSize)} px")
                     Slider(value = pointSize, onValueChange = { pointSize = it }, valueRange = 2f..20f)
                     Text("Polygon opacity · ${"%.0f".format(fillOpacityValue * 100)}%")
+                    Slider(value = fillOpacityValue, onValueChange = { fillOpacityValue = it }, valueRange = 0.05f..1f)
+                    Text("Raster opacity · ${"%.0f".format(rasterOpacityValue * 100)}%")
+                    Slider(value = rasterOpacityValue, onValueChange = { rasterOpacityValue = it }, valueRange = 0.1f..1f)
+                    Text("Scale division position")
+                    Box {
+                        TextButton(onClick = { scalePositionMenu = true }) { Text("$scalePosition ▾") }
+                        DropdownMenu(expanded = scalePositionMenu, onDismissRequest = { scalePositionMenu = false }) {
+                            listOf("Top left", "Top right", "Bottom left", "Bottom right").forEach { position ->
+                                DropdownMenuItem(text = { Text(position) }, onClick = { scalePosition = position; scalePositionMenu = false })
+                            }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Show scale division", modifier = Modifier.weight(1f))
                         Switch(checked = showScale, onCheckedChange = { showScale = it })
                     }
-                    Slider(value = fillOpacityValue, onValueChange = { fillOpacityValue = it }, valueRange = 0.05f..1f)
                 }
             },
             confirmButton = {
