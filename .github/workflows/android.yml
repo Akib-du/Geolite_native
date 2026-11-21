@@ -26,7 +26,21 @@ jobs:
       - name: Build GDAL Android engine with GPX and OpenFileGDB
         run: |
           git clone --depth 1 https://github.com/kikitte/GDAL4Android.git vendor/GDAL4Android
-          sed -i '/-DOGR_BUILD_OPTIONAL_DRIVERS=OFF \\/a\   -DOGR_ENABLE_DRIVER_GPX=ON \\\n   -DOGR_ENABLE_DRIVER_OPENFILEGDB=ON \\\n   -DGDAL_ENABLE_DRIVER_PNG=ON \\' vendor/GDAL4Android/gdal/build_cpp.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          script = Path("vendor/GDAL4Android/gdal/build_cpp.sh")
+          source = script.read_text()
+          needle = "   -DOGR_BUILD_OPTIONAL_DRIVERS=OFF \\\n"
+          extra = (
+              needle
+              + "   -DOGR_ENABLE_DRIVER_GPX=ON \\\n"
+              + "   -DOGR_ENABLE_DRIVER_OPENFILEGDB=ON \\\n"
+              + "   -DGDAL_ENABLE_DRIVER_PNG=ON \\\n"
+          )
+          if needle not in source:
+              raise SystemExit("Could not find GDAL CMake driver configuration line")
+          script.write_text(source.replace(needle, extra, 1))
+          PY
           docker build -t geolite-gdal-builder - < vendor/GDAL4Android/docker/Dockerfile
           docker run --rm --platform linux/amd64 \
             -v "$PWD/vendor/GDAL4Android:/root/GDAL4Android" \
