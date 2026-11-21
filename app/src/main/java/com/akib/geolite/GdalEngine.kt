@@ -101,6 +101,11 @@ object GdalEngine {
 
     data class RasterImageInfo(val imagePath: String, val west: Double, val north: Double, val east: Double, val south: Double)
 
+    fun hasRasterDriver(name: String): Boolean {
+        initialize()
+        return gdal.GetDriverByName(name) != null
+    }
+
     fun hasVectorDriver(name: String): Boolean {
         initialize()
         return ogr.GetDriverByName(name) != null
