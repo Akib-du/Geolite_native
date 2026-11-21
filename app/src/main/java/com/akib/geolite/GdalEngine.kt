@@ -69,7 +69,7 @@ object GdalEngine {
             var feature = layer.GetNextFeature()
             var count = 0L
             while (feature != null) {
-                val properties = JSONObject()
+                val properties = JSONObject().put("__fid", feature.GetFID())
                 for (i in 0 until feature.GetFieldCount()) {
                     val fieldName = definition.GetFieldDefn(i).GetNameRef()
                     properties.put(fieldName, feature.GetFieldAsString(i))
@@ -97,6 +97,109 @@ object GdalEngine {
         } finally {
             dataSource.delete()
         }
+    }
+
+    data class RasterImageInfo(val imagePath: String, val west: Double, val north: Double, val east: Double, val south: Double)
+
+    fun hasVectorDriver(name: String): Boolean {
+        initialize()
+        return ogr.GetDriverByName(name) != null
+    }
+
+    /** Reproject a raster to WGS84 and make a bounded PNG for MapLibre's georeferenced ImageSource. */
+    fun createMapImage(inputPath: String, outputPath: String): RasterImageInfo {
+        initialize()
+        val source = gdal.Open(inputPath, gdalconstConstants.GA_ReadOnly)
+            ?: error("GDAL could not open the raster.")
+        try {
+            val options = java.util.Vector<String>().apply {
+                addAll(listOf("-t_srs", "EPSG:4326", "-of", "PNG", "-ts", "2048", "2048", "-dstalpha"))
+            }
+            val warpOptions = org.gdal.gdal.WarpOptions(options)
+            val output = gdal.Warp(outputPath, arrayOf(source), warpOptions)
+                ?: error("Could not create a map preview for this raster.")
+            try {
+                val gt = output.GetGeoTransform()
+                val west = gt[0]
+                val north = gt[3]
+                val east = west + output.GetRasterXSize() * gt[1]
+                val south = north + output.GetRasterYSize() * gt[5]
+                require(listOf(west, north, east, south).all { it.isFinite() } && east > west && north > south) {
+                    "Raster has invalid or unsupported geographic bounds."
+                }
+                return RasterImageInfo(outputPath, west, north, east, south)
+            } finally {
+                output.delete()
+                warpOptions.delete()
+            }
+        } finally {
+            source.delete()
+        }
+    }
+
+    /** Create an editable point Shapefile feature class in WGS84. */
+    fun createPointShapefile(path: String, layerName: String) {
+        initialize()
+        val driver = ogr.GetDriverByName("ESRI Shapefile") ?: error("Shapefile driver unavailable.")
+        val dataSource = driver.CreateDataSource(path) ?: error("Could not create Shapefile.")
+        try {
+            val srs = SpatialReference()
+            srs.ImportFromEPSG(4326)
+            val layer = dataSource.CreateLayer(layerName, srs, ogr.wkbPoint)
+                ?: error("Could not create point feature class.")
+            srs.delete()
+        } finally { dataSource.delete() }
+    }
+
+    fun addField(path: String, layerIndex: Int, fieldName: String) {
+        require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,9}"))) { "Shapefile field names must be 1–10 letters/numbers/underscores and start with a letter." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing. It may be read-only.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val field = org.gdal.ogr.FieldDefn(fieldName, ogr.OFTString)
+            try {
+                require(layer.CreateField(field) == 0) { "Could not add field. It may already exist or exceed driver limits." }
+            } finally { field.delete() }
+        } finally { ds.delete() }
+    }
+
+    fun updateAttribute(path: String, layerIndex: Int, featureId: Long, fieldName: String, value: String) {
+        val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val feature = layer.GetFeature(featureId) ?: error("Feature not found.")
+            try {
+                feature.SetField(fieldName, value)
+                require(layer.SetFeature(feature) == 0) { "Could not save the attribute change." }
+            } finally { feature.delete() }
+        } finally { ds.delete() }
+    }
+
+    fun deleteFeature(path: String, layerIndex: Int, featureId: Long) {
+        val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            require(layer.DeleteFeature(featureId) == 0) { "Could not delete feature." }
+        } finally { ds.delete() }
+    }
+
+    fun createPointFeature(path: String, layerIndex: Int, longitude: Double, latitude: Double) {
+        require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
+        val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
+        try {
+            val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
+            val definition = layer.GetLayerDefn()
+            val feature = org.gdal.ogr.Feature(definition)
+            val geometry = org.gdal.ogr.Geometry(ogr.wkbPoint)
+            try {
+                geometry.AddPoint_2D(longitude, latitude)
+                feature.SetGeometry(geometry)
+                require(layer.CreateFeature(feature) == 0) { "Could not create point feature." }
+            } finally {
+                geometry.delete()
+                feature.delete()
+            }
+        } finally { ds.delete() }
     }
 
     fun openRaster(path: String): RasterInfo {
