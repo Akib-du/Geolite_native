@@ -178,11 +178,31 @@ private fun GeoLiteScreen() {
                     if (extension in listOf("tif", "tiff", "img", "vrt")) {
                         val info = GdalEngine.openRaster(copied.absolutePath)
                         val description = GdalEngine.describeRaster(info)
+                        val png = File(context.cacheDir, "raster_preview_${System.currentTimeMillis()}.png")
+                        val imageInfo = GdalEngine.createMapImage(copied.absolutePath, png.absolutePath)
+                        val overlay = RasterOverlay("raster_${System.currentTimeMillis()}", png.absolutePath,
+                            imageInfo.west, imageInfo.north, imageInfo.east, imageInfo.south)
                         activity.runOnUiThread {
                             lastRasterPath = copied.absolutePath
+                            rasterOverlays = rasterOverlays + overlay
                             selectedFile = displayName
                             rasterLayers = rasterLayers + "$displayName · $description"
-                            status = "Raster opened by GDAL: $description · ${info.projection.ifBlank { "CRS not defined" }}"
+                            map?.getStyle { style -> addRasterOverlayToStyle(style, overlay) }
+                            status = "Raster opened and displayed: $description · ${info.projection.ifBlank { "CRS not defined" }}"
+                            selectedPanel = "Layers"
+                        }
+                    } else if (extension == "gpx") {
+                        require(GdalEngine.hasVectorDriver("GPX")) {
+                            "GPX support is not present in the bundled GDAL runtime. Rebuild GDAL with OGR_ENABLE_DRIVER_GPX=ON."
+                        }
+                        val layers = GdalEngine.listVectorLayers(copied.absolutePath)
+                        require(layers.isNotEmpty()) { "No GPX waypoints, routes or tracks were found." }
+                        activity.runOnUiThread {
+                            pendingGdbPath = copied.absolutePath
+                            pendingGdbLayers = layers
+                            showGdbLayerDialog = true
+                            selectedFile = displayName
+                            status = "GPX contains ${layers.size} layer(s). Choose waypoints, routes or tracks."
                             selectedPanel = "Layers"
                         }
                     } else {
@@ -211,17 +231,11 @@ private fun GeoLiteScreen() {
                             } else {
                                 activeMap.getStyle { style ->
                                     try {
-                                        style.addSource(GeoJsonSource(sourceId, result.geoJson))
-                                        style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
-                                            fillColor("#4F83CC"), fillOpacity(0.30f)
-                                        ))
-                                        style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
-                                            lineColor("#245A9A"), lineWidth(2.0f)
-                                        ))
-                                        style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
-                                            circleColor("#E46B35"), circleRadius(5.0f)
-                                        ))
+                                        val overlay = VectorOverlay(sourceId, layerLabel, result.geoJson, result.featureCount)
+                                        addVectorOverlayToStyle(style, overlay)
                                         vectorLayers = vectorLayers + "$layerLabel · ${result.featureCount} features"
+                                        val overlay = VectorOverlay(sourceId, layerLabel, result.geoJson, result.featureCount)
+                                        vectorOverlays = vectorOverlays + overlay
                                         attributeRows = parsedRows
                                         selectedAttributeIndex = 0
                                         lastVectorPath = vectorFile.absolutePath
@@ -274,17 +288,10 @@ private fun GeoLiteScreen() {
                     } else {
                         activeMap.getStyle { style ->
                             try {
-                                style.addSource(GeoJsonSource(sourceId, result.geoJson))
-                                style.addLayer(FillLayer("${sourceId}_fill", sourceId).withProperties(
-                                    fillColor("#4F83CC"), fillOpacity(0.30f)
-                                ))
-                                style.addLayer(LineLayer("${sourceId}_line", sourceId).withProperties(
-                                    lineColor("#245A9A"), lineWidth(2.0f)
-                                ))
-                                style.addLayer(CircleLayer("${sourceId}_point", sourceId).withProperties(
-                                    circleColor("#E46B35"), circleRadius(5.0f)
-                                ))
-                                vectorLayers = vectorLayers + "${result.layerName} · ${result.featureCount} features (FileGDB)"
+                                val overlay = VectorOverlay(sourceId, result.layerName, result.geoJson, result.featureCount)
+                                addVectorOverlayToStyle(style, overlay)
+                                vectorOverlays = vectorOverlays + overlay
+                                vectorLayers = vectorLayers + "${result.layerName} · ${result.featureCount} features"
                                 attributeRows = parsedRows
                                 selectedAttributeIndex = 0
                                 lastVectorPath = gdbPath
@@ -524,7 +531,7 @@ private fun GeoLiteScreen() {
     if (showGdbLayerDialog) {
         AlertDialog(
             onDismissRequest = { showGdbLayerDialog = false },
-            title = { Text("FileGDB feature classes") },
+            title = { Text("Dataset layers") },
             text = {
                 LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
                     items(pendingGdbLayers) { layer ->
@@ -542,7 +549,7 @@ private fun GeoLiteScreen() {
                                 },
                                 enabled = !processing,
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("Add this feature class to map") }
+                            ) { Text("Add this layer to map") }
                             HorizontalDivider()
                         }
                     }
