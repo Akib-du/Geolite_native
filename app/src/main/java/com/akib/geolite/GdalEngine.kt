@@ -222,7 +222,14 @@ object GdalEngine {
         } finally { dataSource.delete() }
     }
 
+    private fun requireEditableVectorPath(path: String) {
+        require(path.endsWith(".shp", true) || path.endsWith(".gdb", true)) {
+            "Editing is supported for Shapefile and FileGDB datasets. GPX layers are read-only."
+        }
+    }
+
     fun addField(path: String, layerIndex: Int, fieldName: String, fieldType: String = "String") {
+        requireEditableVectorPath(path)
         val maxFieldLength = if (path.endsWith(".shp", true)) 10 else 64
         require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,${maxFieldLength - 1}}"))) {
             "Field name must start with a letter and contain only letters, numbers or underscores (max $maxFieldLength characters)."
@@ -244,6 +251,7 @@ object GdalEngine {
     }
 
     fun updateAttribute(path: String, layerIndex: Int, featureId: Long, fieldName: String, value: String) {
+        requireEditableVectorPath(path)
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -256,6 +264,7 @@ object GdalEngine {
     }
 
     fun deleteFeature(path: String, layerIndex: Int, featureId: Long) {
+        requireEditableVectorPath(path)
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -264,6 +273,7 @@ object GdalEngine {
     }
 
     fun movePointFeature(path: String, layerIndex: Int, featureId: Long, longitude: Double, latitude: Double) {
+        requireEditableVectorPath(path)
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
@@ -285,6 +295,7 @@ object GdalEngine {
     }
 
     fun createPointFeature(path: String, layerIndex: Int, longitude: Double, latitude: Double) {
+        requireEditableVectorPath(path)
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
