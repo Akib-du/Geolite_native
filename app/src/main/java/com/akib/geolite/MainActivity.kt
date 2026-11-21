@@ -91,6 +91,7 @@ private fun GeoLiteScreen() {
     var selectedPanel by remember { mutableStateOf("Catalog") }
     var styleName by remember { mutableStateOf("OpenFreeMap · Liberty") }
     var styleMenu by remember { mutableStateOf(false) }
+    var openMenu by remember { mutableStateOf(false) }
     var toolsMenu by remember { mutableStateOf(false) }
     var editMenu by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Ready · Long-press the map to add a placemark") }
@@ -530,9 +531,20 @@ private fun GeoLiteScreen() {
                     }
                 },
                 actions = {
-                    TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("＋ Open") }
-                    TextButton(onClick = { fileGdbPicker.launch(null) }) { Text("Open .gdb") }
-                    TextButton(onClick = { shpFolderPicker.launch(null) }) { Text("Open SHP folder") }
+                    Box {
+                        TextButton(onClick = { openMenu = true }) { Text("＋ Open ▾") }
+                        DropdownMenu(expanded = openMenu, onDismissRequest = { openMenu = false }) {
+                            DropdownMenuItem(text = { Text("Open vector / raster file") }, onClick = {
+                                openMenu = false; filePicker.launch(arrayOf("*/*"))
+                            })
+                            DropdownMenuItem(text = { Text("Open Shapefile folder") }, onClick = {
+                                openMenu = false; shpFolderPicker.launch(null)
+                            })
+                            DropdownMenuItem(text = { Text("Open FileGDB folder") }, onClick = {
+                                openMenu = false; fileGdbPicker.launch(null)
+                            })
+                        }
+                    }
                     Box {
                         TextButton(onClick = { toolsMenu = true }) { Text("Tools ▾") }
                         DropdownMenu(expanded = toolsMenu, onDismissRequest = { toolsMenu = false }) {
