@@ -144,6 +144,15 @@ private fun GeoLiteScreen() {
     var lastVectorLayerIndex by remember { mutableIntStateOf(0) }
     var lastVectorSourceId by remember { mutableStateOf<String?>(null) }
     var lastRasterPath by remember { mutableStateOf<String?>(null) }
+    var showRasterProcessDialog by remember { mutableStateOf(false) }
+    var rasterProcessMode by remember { mutableStateOf("Clip") }
+    var clipMinX by remember { mutableStateOf("") }
+    var clipMinY by remember { mutableStateOf("") }
+    var clipMaxX by remember { mutableStateOf("") }
+    var clipMaxY by remember { mutableStateOf("") }
+    var pixelWidth by remember { mutableStateOf("30") }
+    var pixelHeight by remember { mutableStateOf("30") }
+    var resamplingMethod by remember { mutableStateOf("Bilinear") }
     var showBufferDialog by remember { mutableStateOf(false) }
     var bufferDistance by remember { mutableStateOf("100") }
     var processing by remember { mutableStateOf(false) }
@@ -170,6 +179,26 @@ private fun GeoLiteScreen() {
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread { driverStatus = "GDAL unavailable: ${e.localizedMessage}" }
+            }
+        }.start()
+    }
+
+    fun runTerrainTool(operation: String) {
+        val input = lastRasterPath
+        if (input == null) { status = "Open an elevation GeoTIFF first."; return }
+        processing = true
+        Thread {
+            try {
+                val outputDir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                outputDir.mkdirs()
+                val output = File(outputDir, "${operation.lowercase()}_${System.currentTimeMillis()}.tif")
+                GdalEngine.terrainRaster(input, output.absolutePath, operation)
+                activity.runOnUiThread {
+                    processing = false
+                    status = "$operation raster created: ${output.absolutePath}. Open it from Catalog to view."
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread { processing = false; status = "$operation failed: ${e.localizedMessage}" }
             }
         }.start()
     }
@@ -595,6 +624,17 @@ private fun GeoLiteScreen() {
                             })
                             DropdownMenuItem(text = { Text("Vector buffer") }, onClick = {
                                 toolsMenu = false; showBufferDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Terrain · Slope") }, onClick = { toolsMenu = false; runTerrainTool("Slope") })
+                            DropdownMenuItem(text = { Text("Terrain · Aspect") }, onClick = { toolsMenu = false; runTerrainTool("Aspect") })
+                            DropdownMenuItem(text = { Text("Terrain · Hillshade") }, onClick = { toolsMenu = false; runTerrainTool("Hillshade") })
+                            DropdownMenuItem(text = { Text("Clip raster by extent") }, onClick = {
+                                toolsMenu = false
+                                if (lastRasterPath == null) status = "Open a raster first." else { rasterProcessMode = "Clip"; showRasterProcessDialog = true }
+                            })
+                            DropdownMenuItem(text = { Text("Resample raster") }, onClick = {
+                                toolsMenu = false
+                                if (lastRasterPath == null) status = "Open a raster first." else { rasterProcessMode = "Resample"; showRasterProcessDialog = true }
                             })
                         }
                     }
@@ -1067,6 +1107,64 @@ private fun GeoLiteScreen() {
                 }) { Text("Run") }
             },
             dismissButton = { TextButton(onClick = { showVectorReprojectDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showRasterProcessDialog) {
+        AlertDialog(
+            onDismissRequest = { showRasterProcessDialog = false },
+            title = { Text(if (rasterProcessMode == "Clip") "Clip raster by extent" else "Raster resampling") },
+            text = {
+                Column {
+                    Text("Input: ${lastRasterPath?.let { File(it).name } ?: "No raster"}")
+                    if (rasterProcessMode == "Clip") {
+                        Text("Extent coordinates must use the input raster's CRS.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = clipMinX, onValueChange = { clipMinX = it }, label = { Text("Minimum X") }, singleLine = true)
+                        OutlinedTextField(value = clipMinY, onValueChange = { clipMinY = it }, label = { Text("Minimum Y") }, singleLine = true)
+                        OutlinedTextField(value = clipMaxX, onValueChange = { clipMaxX = it }, label = { Text("Maximum X") }, singleLine = true)
+                        OutlinedTextField(value = clipMaxY, onValueChange = { clipMaxY = it }, label = { Text("Maximum Y") }, singleLine = true)
+                    } else {
+                        OutlinedTextField(value = pixelWidth, onValueChange = { pixelWidth = it }, label = { Text("Pixel width (map units)") }, singleLine = true)
+                        OutlinedTextField(value = pixelHeight, onValueChange = { pixelHeight = it }, label = { Text("Pixel height (map units)") }, singleLine = true)
+                        Text("Resampling: $resamplingMethod")
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("Nearest", "Bilinear", "Cubic", "Average").forEach { method ->
+                                FilterChip(selected = resamplingMethod == method, onClick = { resamplingMethod = method }, label = { Text(method) })
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val input = lastRasterPath
+                    val values = if (rasterProcessMode == "Clip") listOf(clipMinX, clipMinY, clipMaxX, clipMaxY).mapNotNull { it.toDoubleOrNull() }
+                        else listOf(pixelWidth, pixelHeight).mapNotNull { it.toDoubleOrNull() }
+                    val required = if (rasterProcessMode == "Clip") 4 else 2
+                    if (input == null || values.size != required) {
+                        status = "Enter valid numeric values for all parameters."
+                    } else {
+                        showRasterProcessDialog = false
+                        processing = true
+                        Thread {
+                            try {
+                                val dir = activity.getExternalFilesDir("GeoLite/Processing") ?: activity.filesDir
+                                dir.mkdirs()
+                                val output = File(dir, "${rasterProcessMode.lowercase()}_${System.currentTimeMillis()}.tif")
+                                if (rasterProcessMode == "Clip") GdalEngine.clipRasterByExtent(input, output.absolutePath, values[0], values[1], values[2], values[3])
+                                else GdalEngine.resampleRaster(input, output.absolutePath, values[0], values[1], resamplingMethod)
+                                activity.runOnUiThread {
+                                    processing = false
+                                    status = "$rasterProcessMode raster created: ${output.absolutePath}. Open it from Catalog to view."
+                                }
+                            } catch (e: Exception) {
+                                activity.runOnUiThread { processing = false; status = "$rasterProcessMode failed: ${e.localizedMessage}" }
+                            }
+                        }.start()
+                    }
+                }) { Text("Run") }
+            },
+            dismissButton = { TextButton(onClick = { showRasterProcessDialog = false }) { Text("Cancel") } }
         )
     }
 
