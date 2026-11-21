@@ -118,6 +118,8 @@ private fun GeoLiteScreen() {
     var manualLon by remember { mutableStateOf("") }
     var newLayerName by remember { mutableStateOf("new_points") }
     var newGeometryType by remember { mutableStateOf("Point") }
+    var newStorageFormat by remember { mutableStateOf("Shapefile") }
+    var storageFormatMenu by remember { mutableStateOf(false) }
     var geometryMenu by remember { mutableStateOf(false) }
     var selectedFeatureFid by remember { mutableStateOf<Long?>(null) }
     var selectedFeatureProperties by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -1033,6 +1035,14 @@ private fun GeoLiteScreen() {
                     OutlinedTextField(value = newLayerName, onValueChange = { newLayerName = it },
                         label = { Text("Feature class name") }, singleLine = true)
                     Box {
+                        TextButton(onClick = { storageFormatMenu = true }) { Text("Format: $newStorageFormat ▾") }
+                        DropdownMenu(expanded = storageFormatMenu, onDismissRequest = { storageFormatMenu = false }) {
+                            listOf("Shapefile", "FileGDB").forEach { format ->
+                                DropdownMenuItem(text = { Text(format) }, onClick = { newStorageFormat = format; storageFormatMenu = false })
+                            }
+                        }
+                    }
+                    Box {
                         TextButton(onClick = { geometryMenu = true }) { Text("Geometry: $newGeometryType ▾") }
                         DropdownMenu(expanded = geometryMenu, onDismissRequest = { geometryMenu = false }) {
                             listOf("Point", "Line", "Polygon").forEach { type ->
@@ -1040,7 +1050,7 @@ private fun GeoLiteScreen() {
                             }
                         }
                     }
-                    Text("Creates a WGS84 Shapefile feature class. Map-click digitizing is available for Point geometry.",
+                    Text("Creates a WGS84 Shapefile or FileGDB feature class. Map-click digitizing is available for Point geometry.",
                         style = MaterialTheme.typography.bodySmall)
                 }
             },
@@ -1050,20 +1060,26 @@ private fun GeoLiteScreen() {
                     try {
                         val folder = activity.getExternalFilesDir("GeoLite/Projects") ?: activity.filesDir
                         folder.mkdirs()
-                        val path = File(folder, "$clean.shp").absolutePath
-                        GdalEngine.createShapefile(path, clean, newGeometryType)
-                        val result = GdalEngine.openVector(path)
+                        val path = if (newStorageFormat == "FileGDB") File(folder, "$clean.gdb").absolutePath
+                            else File(folder, "$clean.shp").absolutePath
+                        val layerIndex = if (newStorageFormat == "FileGDB") {
+                            GdalEngine.createFileGdbFeatureClass(path, clean, newGeometryType)
+                        } else {
+                            GdalEngine.createShapefile(path, clean, newGeometryType)
+                            0
+                        }
+                        val result = GdalEngine.openVector(path, layerIndex)
                         val sourceId = "created_layer_${System.currentTimeMillis()}"
                         val overlay = VectorOverlay(sourceId, clean, result.geoJson, result.featureCount)
                         lastVectorPath = path
-                        lastVectorLayerIndex = 0
+                        lastVectorLayerIndex = layerIndex
                         lastVectorSourceId = sourceId
                         vectorOverlays = vectorOverlays + overlay
-                        vectorLayers = vectorLayers + "$clean · 0 features"
+                        vectorLayers = vectorLayers + "$clean · 0 features ($newStorageFormat)"
                         attributeRows = emptyList()
                         map?.getStyle { style -> addVectorOverlayToStyle(style, overlay) }
                         selectedFile = File(path).name
-                        status = "Created editable WGS84 $newGeometryType feature class: $path"
+                        status = "Created editable WGS84 $newGeometryType $newStorageFormat feature class: $path"
                         showCreateLayerDialog = false
                     } catch (e: Exception) { status = "Create feature class failed: ${e.localizedMessage}" }
                 }) { Text("Create") }
