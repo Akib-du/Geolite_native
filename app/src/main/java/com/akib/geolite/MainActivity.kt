@@ -549,7 +549,7 @@ private fun copyDocumentTree(context: android.content.Context, treeUri: android.
     fun copyFolder(source: DocumentFile, target: File) {
         source.listFiles().forEach { child ->
             val childName = child.name ?: error("A FileGDB item has no filename.")
-            require(childName != "." && childName != ".." && !childName.contains("/") && !childName.contains("\\\\")) {
+            require(childName != "." && childName != ".." && !childName.contains("/") && !childName.contains('\\')) {
                 "Invalid FileGDB component name: $childName"
             }
             val output = File(target, childName)
