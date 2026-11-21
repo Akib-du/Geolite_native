@@ -161,6 +161,7 @@ object GdalEngine {
     fun createPointShapefile(path: String, layerName: String) = createShapefile(path, layerName, "Point")
 
     fun addField(path: String, layerIndex: Int, fieldName: String) {
+        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         require(fieldName.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,9}"))) { "Shapefile field names must be 1–10 letters/numbers/underscores and start with a letter." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing. It may be read-only.")
         try {
@@ -173,6 +174,7 @@ object GdalEngine {
     }
 
     fun updateAttribute(path: String, layerIndex: Int, featureId: Long, fieldName: String, value: String) {
+        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -185,6 +187,7 @@ object GdalEngine {
     }
 
     fun deleteFeature(path: String, layerIndex: Int, featureId: Long) {
+        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
             val layer = ds.GetLayer(layerIndex) ?: error("Layer not found.")
@@ -193,6 +196,7 @@ object GdalEngine {
     }
 
     fun createPointFeature(path: String, layerIndex: Int, longitude: Double, latitude: Double) {
+        require(path.endsWith(".shp", true)) { "Direct editing is currently supported for Shapefile datasets. FileGDB and GPX are read-only in this build." }
         require(longitude in -180.0..180.0 && latitude in -90.0..90.0) { "Coordinates are outside valid WGS84 ranges." }
         val ds = ogr.Open(path, 1) ?: error("Could not open this dataset for editing.")
         try {
