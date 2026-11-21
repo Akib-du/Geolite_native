@@ -945,14 +945,18 @@ private fun GeoLiteScreen() {
                                                 val queryLayers = vectorOverlays.flatMap {
                                                     listOf("${it.id}_fill", "${it.id}_line", "${it.id}_symbol")
                                                 }.toTypedArray()
-                                                val found = nativeMap.queryRenderedFeatures(screenPoint, queryLayers).firstOrNull()
+                                                val found = nativeMap.queryRenderedFeatures(screenPoint, *queryLayers).firstOrNull()
                                                 if (found != null) {
-                                                    val props = found.properties()
+                                                    val props = JSONObject(found.toJson()).optJSONObject("properties")
                                                     val values = linkedMapOf<String, String>()
-                                                    props?.entrySet()?.forEach { entry ->
-                                                        values[entry.key] = if (entry.value == null || entry.value.isJsonNull) "" else entry.value.asString
+                                                    if (props != null) {
+                                                        val keys = props.keys()
+                                                        while (keys.hasNext()) {
+                                                            val key = keys.next()
+                                                            values[key] = props.opt(key)?.toString()?.takeUnless { it == "null" } ?: ""
+                                                        }
                                                     }
-                                                    selectedFeatureFid = props?.get("__fid")?.asString?.toLongOrNull()
+                                                    selectedFeatureFid = props?.optString("__fid")?.toLongOrNull()
                                                     selectedFeatureProperties = values
                                                     val rowIndex = selectedFeatureFid?.let { fid ->
                                                         attributeRows.indexOfFirst { it["__fid"] == fid.toString() }
@@ -971,7 +975,7 @@ private fun GeoLiteScreen() {
                                                             style.removeLayer("selection_point")
                                                             style.removeSource("selection_source")
                                                             style.addSource(GeoJsonSource("selection_source",
-                                                                FeatureCollection.fromFeatures(arrayOf(found))))
+                                                                FeatureCollection.fromFeatures(listOf(found))))
                                                             style.addLayer(FillLayer("selection_fill", "selection_source").withProperties(
                                                                 fillColor("#FF3B30"), fillOpacity(0.55f)))
                                                             style.addLayer(LineLayer("selection_line", "selection_source").withProperties(
