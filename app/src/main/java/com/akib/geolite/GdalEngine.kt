@@ -113,7 +113,7 @@ object GdalEngine {
             ?: error("GDAL could not open the raster.")
         try {
             val options = java.util.Vector<String>().apply {
-                addAll(listOf("-t_srs", "EPSG:4326", "-of", "PNG", "-ts", "2048", "2048", "-dstalpha"))
+                addAll(listOf("-t_srs", "EPSG:4326", "-of", "PNG", "-ts", "2048", "0", "-dstalpha"))
             }
             val warpOptions = org.gdal.gdal.WarpOptions(options)
             val output = gdal.Warp(outputPath, arrayOf(source), warpOptions)
