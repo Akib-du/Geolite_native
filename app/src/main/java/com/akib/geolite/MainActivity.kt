@@ -625,6 +625,16 @@ private fun GeoLiteScreen() {
                                 if (selectedFeatureFid == null) status = "Select a line or polygon feature first."
                                 else { mapTool = "Edit vertex"; status = "Tap near the vertex you want to move." }
                             })
+                            DropdownMenuItem(text = { Text("Insert line/polygon vertex") }, onClick = {
+                                editMenu = false
+                                if (selectedFeatureFid == null) status = "Select a line or polygon feature first."
+                                else { mapTool = "Insert vertex"; status = "Tap near the segment where the new vertex should be inserted." }
+                            })
+                            DropdownMenuItem(text = { Text("Delete line/polygon vertex") }, onClick = {
+                                editMenu = false
+                                if (selectedFeatureFid == null) status = "Select a line or polygon feature first."
+                                else { mapTool = "Delete vertex"; status = "Tap near the vertex you want to delete." }
+                            })
                             DropdownMenuItem(text = { Text("Move selected point") }, onClick = {
                                 editMenu = false; mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new position."
                             })
@@ -852,6 +862,30 @@ private fun GeoLiteScreen() {
                                                      status = "Vertex ${index + 1} moved to %.6f, %.6f.".format(point.latitude, point.longitude)
                                                      mapTool = "Pan"
                                                  } catch (e: Exception) { status = "Vertex edit failed: ${e.localizedMessage}" }
+                                                 true
+                                             }
+                                             "Insert vertex" -> {
+                                                 val path = lastVectorPath
+                                                 val fid = selectedFeatureFid
+                                                 if (path == null || fid == null) status = "Select a line or polygon feature first."
+                                                 else try {
+                                                     val index = GdalEngine.insertNearestVertex(path, lastVectorLayerIndex, fid, point.longitude, point.latitude)
+                                                     refreshActiveVector()
+                                                     status = "Inserted vertex at position ${index + 1}."
+                                                     mapTool = "Pan"
+                                                 } catch (e: Exception) { status = "Vertex insertion failed: ${e.localizedMessage}" }
+                                                 true
+                                             }
+                                             "Delete vertex" -> {
+                                                 val path = lastVectorPath
+                                                 val fid = selectedFeatureFid
+                                                 if (path == null || fid == null) status = "Select a line or polygon feature first."
+                                                 else try {
+                                                     val index = GdalEngine.deleteNearestVertex(path, lastVectorLayerIndex, fid, point.longitude, point.latitude)
+                                                     refreshActiveVector()
+                                                     status = "Deleted vertex ${index + 1}."
+                                                     mapTool = "Pan"
+                                                 } catch (e: Exception) { status = "Vertex deletion failed: ${e.localizedMessage}" }
                                                  true
                                              }
                                              "Move point" -> {
