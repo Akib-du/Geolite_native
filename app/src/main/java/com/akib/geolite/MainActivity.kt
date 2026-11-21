@@ -148,6 +148,7 @@ private fun GeoLiteScreen() {
     var pendingGdbLayers by remember { mutableStateOf(emptyList<GdalEngine.VectorLayerInfo>()) }
     var showGdbLayerDialog by remember { mutableStateOf(false) }
     var pendingShpFiles by remember { mutableStateOf(emptyList<File>()) }
+    var pendingExportGdbPath by remember { mutableStateOf<String?>(null) }
     var showShpFileDialog by remember { mutableStateOf(false) }
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
@@ -510,6 +511,27 @@ private fun GeoLiteScreen() {
         }
     }
 
+    val exportGdbPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        val path = pendingExportGdbPath
+        if (treeUri != null && path != null) {
+            processing = true
+            Thread {
+                try {
+                    copyLocalDirectoryToTree(context, File(path), treeUri)
+                    activity.runOnUiThread {
+                        processing = false
+                        status = "Edited FileGDB exported to the selected folder."
+                    }
+                } catch (e: Exception) {
+                    activity.runOnUiThread {
+                        processing = false
+                        status = "FileGDB export failed: ${e.localizedMessage}"
+                    }
+                }
+            }.start()
+        }
+    }
+
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
@@ -578,6 +600,16 @@ private fun GeoLiteScreen() {
                             })
                             DropdownMenuItem(text = { Text("Edit selected attribute") }, onClick = {
                                 editMenu = false; showAttributeEditDialog = true
+                            })
+                            DropdownMenuItem(text = { Text("Export edited FileGDB copy") }, onClick = {
+                                editMenu = false
+                                val path = lastVectorPath
+                                if (path == null || !path.endsWith(".gdb", true)) {
+                                    status = "Open or create a FileGDB first."
+                                } else {
+                                    pendingExportGdbPath = path
+                                    exportGdbPicker.launch(null)
+                                }
                             })
                             DropdownMenuItem(text = { Text("Move selected point") }, onClick = {
                                 editMenu = false; mapTool = "Move point"; status = "Identify/select a point feature first, then tap its new position."
