@@ -118,6 +118,8 @@ private fun GeoLiteScreen() {
     var pendingGdbPath by remember { mutableStateOf<String?>(null) }
     var pendingGdbLayers by remember { mutableStateOf(emptyList<GdalEngine.VectorLayerInfo>()) }
     var showGdbLayerDialog by remember { mutableStateOf(false) }
+    var pendingShpFiles by remember { mutableStateOf(emptyList<File>()) }
+    var showShpFileDialog by remember { mutableStateOf(false) }
     var attributeRows by remember { mutableStateOf(listOf<Map<String, String>>()) }
     var selectedAttributeIndex by remember { mutableIntStateOf(0) }
     val currentPinCount = rememberUpdatedState(pins.size)
@@ -212,6 +214,7 @@ private fun GeoLiteScreen() {
                             selectedPanel = "Layers"
                         }
                     } else {
+                        if (extension == "shp") error("A Shapefile needs its .shx and .dbf sidecar files. Use Open SHP folder, or select a ZIP containing the full Shapefile set.")
                         val vectorFile = if (extension == "zip") extractShapefile(copied) else copied
                         val result = GdalEngine.openVector(vectorFile.absolutePath)
                         val document = JSONObject(result.geoJson)
@@ -357,7 +360,67 @@ private fun GeoLiteScreen() {
         }
     }
 
-        val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+        fun loadShapefile(file: File) {
+        processing = true
+        showShpFileDialog = false
+        Thread {
+            try {
+                val result = GdalEngine.openVector(file.absolutePath)
+                val featureArray = JSONObject(result.geoJson).optJSONArray("features") ?: org.json.JSONArray()
+                val rows = (0 until featureArray.length()).map { index ->
+                    val props = featureArray.getJSONObject(index).optJSONObject("properties") ?: JSONObject()
+                    val row = linkedMapOf<String, String>()
+                    val keys = props.keys()
+                    while (keys.hasNext()) { val key = keys.next(); row[key] = props.optString(key, "") }
+                    row
+                }
+                val id = "shp_${System.currentTimeMillis()}"
+                activity.runOnUiThread {
+                    map?.getStyle { style ->
+                        try {
+                            val overlay = VectorOverlay(id, file.nameWithoutExtension, result.geoJson, result.featureCount)
+                            addVectorOverlayToStyle(style, overlay)
+                            vectorOverlays = vectorOverlays + overlay
+                            vectorLayers = vectorLayers + "${file.name} · ${result.featureCount} features"
+                            attributeRows = rows
+                            selectedAttributeIndex = 0
+                            lastVectorPath = file.absolutePath
+                            lastVectorLayerIndex = 0
+                            selectedFile = file.name
+                            selectedPanel = "Layers"
+                            status = "Shapefile opened: ${file.name} · ${result.featureCount} features"
+                        } catch (e: Exception) { status = "Shapefile loaded but map display failed: ${e.localizedMessage}" }
+                    } ?: run { status = "Map is not ready. Try opening the Shapefile again." }
+                    processing = false
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread { status = "Could not open Shapefile: ${e.localizedMessage}"; processing = false }
+            }
+        }.start()
+    }
+
+    val shpFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            processing = true
+            Thread {
+                try {
+                    val copied = copyDirectoryTree(context, uri)
+                    val files = copied.walkTopDown().filter { it.isFile && it.extension.equals("shp", true) }.toList()
+                    require(files.isNotEmpty()) { "No .shp files found in the selected folder." }
+                    activity.runOnUiThread {
+                        pendingShpFiles = files
+                        showShpFileDialog = true
+                        status = "Found ${files.size} Shapefile(s). Choose one to open."
+                        processing = false
+                    }
+                } catch (e: Exception) {
+                    activity.runOnUiThread { status = "Could not read Shapefile folder: ${e.localizedMessage}"; processing = false }
+                }
+            }.start()
+        }
+    }
+
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         val allowed = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (allowed) {
@@ -389,6 +452,7 @@ private fun GeoLiteScreen() {
                 actions = {
                     TextButton(onClick = { filePicker.launch(arrayOf("*/*")) }) { Text("＋ Open") }
                     TextButton(onClick = { fileGdbPicker.launch(null) }) { Text("Open .gdb") }
+                    TextButton(onClick = { shpFolderPicker.launch(null) }) { Text("Open SHP folder") }
                     Box {
                         TextButton(onClick = { toolsMenu = true }) { Text("Tools ▾") }
                         DropdownMenu(expanded = toolsMenu, onDismissRequest = { toolsMenu = false }) {
@@ -834,6 +898,24 @@ private fun GeoLiteScreen() {
                 }) { Text("Save attribute") }
             },
             dismissButton = { TextButton(onClick = { showAttributeEditDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showShpFileDialog) {
+        AlertDialog(
+            onDismissRequest = { showShpFileDialog = false },
+            title = { Text("Choose Shapefile") },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
+                    items(pendingShpFiles) { file ->
+                        TextButton(onClick = { loadShapefile(file) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(file.name)
+                        }
+                        HorizontalDivider()
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showShpFileDialog = false }) { Text("Close") } }
         )
     }
 
