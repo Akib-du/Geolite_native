@@ -1,6 +1,8 @@
 package com.akib.geolite
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -283,7 +285,7 @@ internal fun OpenTopographyDemDownloaderDialog(
                     Thread {
                         try {
                             OpenTopographyDemService.download(apiKey, selectedDataset, extent, target)
-                            (context as? android.app.Activity)?.runOnUiThread {
+                            Handler(Looper.getMainLooper()).post {
                                 downloading = false
                                 Toast.makeText(context, "DEM downloaded: ${target.name}", Toast.LENGTH_LONG).show()
                                 onDownloaded(target)
