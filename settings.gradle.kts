@@ -6,4 +6,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "GeoLiteNative"
-include(":app")
+include(":app", ":opentopo-plugin")

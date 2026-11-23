@@ -154,6 +154,7 @@ private fun GeoLiteScreen() {
     var pixelHeight by remember { mutableStateOf("30") }
     var resamplingMethod by remember { mutableStateOf("Bilinear") }
     var showBufferDialog by remember { mutableStateOf(false) }
+    var showOpenTopographyDialog by remember { mutableStateOf(false) }
     var bufferDistance by remember { mutableStateOf("100") }
     var processing by remember { mutableStateOf(false) }
     var pendingGdbPath by remember { mutableStateOf<String?>(null) }
@@ -628,6 +629,10 @@ private fun GeoLiteScreen() {
                             DropdownMenuItem(text = { Text("Terrain · Slope") }, onClick = { toolsMenu = false; runTerrainTool("Slope") })
                             DropdownMenuItem(text = { Text("Terrain · Aspect") }, onClick = { toolsMenu = false; runTerrainTool("Aspect") })
                             DropdownMenuItem(text = { Text("Terrain · Hillshade") }, onClick = { toolsMenu = false; runTerrainTool("Hillshade") })
+                            DropdownMenuItem(text = { Text("OpenTopography DEM Downloader") }, onClick = {
+                                toolsMenu = false
+                                showOpenTopographyDialog = true
+                            })
                             DropdownMenuItem(text = { Text("Clip raster by extent") }, onClick = {
                                 toolsMenu = false
                                 if (lastRasterPath == null) status = "Open a raster first." else { rasterProcessMode = "Clip"; showRasterProcessDialog = true }
@@ -1481,6 +1486,53 @@ private fun GeoLiteScreen() {
             },
             confirmButton = {
                 TextButton(onClick = { showGdbLayerDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
+    if (showOpenTopographyDialog) {
+        val visibleBounds = map?.projection?.visibleRegion?.latLngBounds
+        val currentMapExtent = visibleBounds?.let { bounds ->
+            DemExtent(bounds.latitudeSouth, bounds.latitudeNorth, bounds.longitudeWest, bounds.longitudeEast)
+        }
+        val demOutputDirectory = activity.getExternalFilesDir("GeoLite/DEM") ?: activity.filesDir
+        OpenTopographyDemDownloaderDialog(
+            initialExtent = currentMapExtent,
+            outputDirectory = demOutputDirectory,
+            onDismiss = { showOpenTopographyDialog = false },
+            onDownloaded = { demFile ->
+                showOpenTopographyDialog = false
+                processing = true
+                status = "Opening downloaded DEM…"
+                Thread {
+                    try {
+                        val info = GdalEngine.openRaster(demFile.absolutePath)
+                        val description = GdalEngine.describeRaster(info)
+                        val preview = File(context.cacheDir, "raster_preview_${System.currentTimeMillis()}.png")
+                        val imageInfo = GdalEngine.createMapImage(demFile.absolutePath, preview.absolutePath)
+                        val overlay = RasterOverlay(
+                            "opentopo_dem_${System.currentTimeMillis()}",
+                            preview.absolutePath,
+                            imageInfo.west, imageInfo.north, imageInfo.east, imageInfo.south
+                        )
+                        activity.runOnUiThread {
+                            lastRasterPath = demFile.absolutePath
+                            rasterOverlays = rasterOverlays + overlay
+                            selectedFile = demFile.name
+                            rasterLayers = rasterLayers + "${demFile.name} · $description"
+                            map?.getStyle { style -> addRasterOverlayToStyle(style, overlay) }
+                            selectedPanel = "Layers"
+                            processing = false
+                            status = "OpenTopography DEM downloaded and loaded: $description · ${info.projection.ifBlank { "CRS not defined" }}"
+                        }
+                    } catch (e: Exception) {
+                        activity.runOnUiThread {
+                            processing = false
+                            status = "DEM downloaded, but could not load it: ${e.localizedMessage}"
+                            Toast.makeText(context, status, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }.start()
             }
         )
     }
