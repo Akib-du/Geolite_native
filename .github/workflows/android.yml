@@ -57,10 +57,12 @@ jobs:
           mkdir -p app/libs
           cp vendor/GDAL4Android/gdal/build/outputs/aar/gdal-release.aar app/libs/gdal-3.7.0.aar
           test -s app/libs/gdal-3.7.0.aar
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
+      - name: Build aGIS and standalone OpenTopography plugin APKs
+        run: gradle --no-daemon :app:assembleDebug :opentopo-plugin:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: GeoLite-Native-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: aGIS-and-OpenTopography-plugin-debug-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            opentopo-plugin/build/outputs/apk/debug/opentopo-plugin-debug.apk
           if-no-files-found: error
