@@ -1493,7 +1493,7 @@ private fun GeoLiteScreen() {
     if (showOpenTopographyDialog) {
         val visibleBounds = map?.projection?.visibleRegion?.latLngBounds
         val currentMapExtent = visibleBounds?.let { bounds ->
-            DemExtent(bounds.latSouth, bounds.latNorth, bounds.lonWest, bounds.lonEast)
+            DemExtent(bounds.latitudeSouth, bounds.latitudeNorth, bounds.longitudeWest, bounds.longitudeEast)
         }
         val demOutputDirectory = activity.getExternalFilesDir("GeoLite/DEM") ?: activity.filesDir
         OpenTopographyDemDownloaderDialog(
