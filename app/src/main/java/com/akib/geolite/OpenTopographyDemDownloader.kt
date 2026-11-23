@@ -291,7 +291,7 @@ internal fun OpenTopographyDemDownloaderDialog(
                                 onDownloaded(target)
                             }
                         } catch (e: Exception) {
-                            (context as? android.app.Activity)?.runOnUiThread {
+                            Handler(Looper.getMainLooper()).post {
                                 downloading = false
                                 errorText = e.localizedMessage ?: "DEM download failed."
                             }
